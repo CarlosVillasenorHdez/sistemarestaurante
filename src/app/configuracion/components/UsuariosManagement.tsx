@@ -1,0 +1,616 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, X, Pencil, Shield, Eye, EyeOff, UserCheck, RefreshCw, AlertCircle, Lock, ChevronDown, ChevronUp, CheckSquare, Square, Users } from 'lucide-react';
+import { useAuth, AppRole } from '@/contexts/AuthContext';
+import { createClient } from '@/lib/supabase/client';
+
+const ROLE_LABELS: Record<AppRole, string> = {
+  admin: 'Administrador',
+  gerente: 'Gerente',
+  cajero: 'Cajero',
+  mesero: 'Mesero',
+  cocinero: 'Cocinero',
+  ayudante_cocina: 'Ayudante de Cocina',
+  repartidor: 'Repartidor',
+};
+
+const ROLE_COLORS: Record<AppRole, string> = {
+  admin: '#f59e0b',
+  gerente: '#3b82f6',
+  cajero: '#8b5cf6',
+  mesero: '#10b981',
+  cocinero: '#ef4444',
+  ayudante_cocina: '#f97316',
+  repartidor: '#14b8a6',
+};
+
+const ALL_ROLES: AppRole[] = ['admin', 'gerente', 'cajero', 'mesero', 'cocinero', 'ayudante_cocina', 'repartidor'];
+
+// Map employee role strings to AppRole
+const EMPLOYEE_ROLE_MAP: Record<string, AppRole> = {
+  'Administrador': 'admin',
+  'Gerente': 'gerente',
+  'Cajero': 'cajero',
+  'Mesero': 'mesero',
+  'Cocinero': 'cocinero',
+  'Ayudante de Cocina': 'ayudante_cocina',
+  'Repartidor': 'repartidor',
+};
+
+// Pages that can be toggled per role
+const PAGE_DEFINITIONS = [
+  { key: 'dashboard', label: 'Dashboard', group: 'OPERACIONES' },
+  { key: 'pos', label: 'Punto de Venta', group: 'OPERACIONES' },
+  { key: 'orders', label: 'Órdenes', group: 'OPERACIONES' },
+  { key: 'menu', label: 'Menú', group: 'GESTIÓN' },
+  { key: 'inventario', label: 'Inventario', group: 'GESTIÓN' },
+  { key: 'personal', label: 'Personal', group: 'GESTIÓN' },
+  { key: 'gastos', label: 'Gastos', group: 'GESTIÓN' },
+  { key: 'reportes', label: 'Reportes', group: 'ANÁLISIS' },
+  { key: 'configuracion', label: 'Configuración', group: 'SISTEMA' },
+];
+
+interface AppUser {
+  id: string;
+  authUserId: string;
+  username: string;
+  fullName: string;
+  appRole: AppRole;
+  isActive: boolean;
+}
+
+interface Employee {
+  id: string;
+  name: string;
+  role: string;
+}
+
+interface UserForm {
+  username: string;
+  fullName: string;
+  password: string;
+  appRole: AppRole;
+  employeeId: string;
+}
+
+type RolePermissions = Record<string, boolean>;
+type AllRolePermissions = Record<string, RolePermissions>;
+
+const emptyForm = (): UserForm => ({ username: '', fullName: '', password: '12345', appRole: 'mesero', employeeId: '' });
+
+export default function UsuariosManagement() {
+  const { appUser, createUser, listUsers, toggleUserActive, updateUserRole } = useAuth();
+  const supabase = createClient();
+
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'permisos'>('usuarios');
+
+  // Users state
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pwModalOpen, setPwModalOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<AppUser | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [form, setForm] = useState<UserForm>(emptyForm());
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // Employees from Personal
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [empLoading, setEmpLoading] = useState(false);
+
+  // Permissions state
+  const [permissions, setPermissions] = useState<AllRolePermissions>({});
+  const [permLoading, setPermLoading] = useState(true);
+  const [permSaving, setPermSaving] = useState(false);
+  const [permSaved, setPermSaved] = useState(false);
+  const [expandedRole, setExpandedRole] = useState<AppRole | null>('gerente');
+
+  const isAdmin = appUser?.appRole === 'admin';
+
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listUsers();
+      setUsers(list);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, [listUsers]);
+
+  const fetchEmployees = useCallback(async () => {
+    setEmpLoading(true);
+    try {
+      const { data } = await supabase.from('employees').select('id, name, role').order('name');
+      if (data) setEmployees(data as Employee[]);
+    } catch {
+      // ignore
+    } finally {
+      setEmpLoading(false);
+    }
+  }, [supabase]);
+
+  const fetchPermissions = useCallback(async () => {
+    setPermLoading(true);
+    try {
+      const { data } = await supabase.from('role_permissions').select('*');
+      if (data) {
+        const map: AllRolePermissions = {};
+        data.forEach((row: any) => {
+          if (!map[row.role]) map[row.role] = {};
+          map[row.role][row.page_key] = row.can_access;
+        });
+        setPermissions(map);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setPermLoading(false);
+    }
+  }, [supabase]);
+
+  useEffect(() => { fetchUsers(); fetchEmployees(); }, [fetchUsers, fetchEmployees]);
+  useEffect(() => { if (activeTab === 'permisos') fetchPermissions(); }, [activeTab, fetchPermissions]);
+
+  // When employee is selected, auto-fill full name and role
+  function handleEmployeeSelect(employeeId: string) {
+    const emp = employees.find((e) => e.id === employeeId);
+    if (emp) {
+      const mappedRole = EMPLOYEE_ROLE_MAP[emp.role] ?? 'mesero';
+      setForm((prev) => ({ ...prev, employeeId, fullName: emp.name, appRole: mappedRole }));
+    } else {
+      setForm((prev) => ({ ...prev, employeeId: '', fullName: '', appRole: 'mesero' }));
+    }
+  }
+
+  async function handleCreateUser() {
+    setFormError('');
+    if (!form.employeeId) { setFormError('Selecciona un empleado del personal'); return; }
+    if (!form.username.trim()) { setFormError('El nombre de usuario es requerido'); return; }
+    if (form.password.length < 4) { setFormError('La contraseña debe tener al menos 4 caracteres'); return; }
+    setSaving(true);
+    try {
+      await createUser(form.username, form.password, form.fullName, form.appRole);
+      setModalOpen(false);
+      setForm(emptyForm());
+      setSuccessMsg('Usuario creado exitosamente');
+      setTimeout(() => setSuccessMsg(''), 3000);
+      fetchUsers();
+    } catch (e: any) {
+      setFormError(e.message || 'Error al crear usuario');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleChangePassword() {
+    if (!selectedUser || newPassword.length < 4) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.functions.invoke('update-user-password', {
+        body: { auth_user_id: selectedUser.authUserId, new_password: newPassword },
+      });
+      if (error) throw error;
+      setPwModalOpen(false);
+      setNewPassword('');
+      setSelectedUser(null);
+      setSuccessMsg('Contraseña actualizada');
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (e: any) {
+      setFormError(e.message || 'Error al cambiar contraseña');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function togglePermission(role: string, pageKey: string) {
+    if (role === 'admin') return;
+    setPermissions((prev) => ({
+      ...prev,
+      [role]: { ...(prev[role] || {}), [pageKey]: !(prev[role]?.[pageKey] ?? false) },
+    }));
+  }
+
+  async function handleSavePermissions() {
+    setPermSaving(true);
+    try {
+      const rows: any[] = [];
+      Object.entries(permissions).forEach(([role, pages]) => {
+        Object.entries(pages).forEach(([page_key, can_access]) => {
+          rows.push({ role, page_key, can_access });
+        });
+      });
+      await supabase.from('role_permissions').upsert(rows, { onConflict: 'role,page_key' });
+      setPermSaved(true);
+      setTimeout(() => setPermSaved(false), 2500);
+    } catch {
+      // ignore
+    } finally {
+      setPermSaving(false);
+    }
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4">
+        <Shield size={40} style={{ color: 'rgba(255,255,255,0.15)' }} />
+        <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>Solo el Administrador puede gestionar usuarios.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl overflow-hidden flex flex-col" style={{ backgroundColor: '#162d55', border: '1px solid #243f72', minHeight: '500px' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: '#243f72' }}>
+        <div className="flex items-center gap-3">
+          <Shield size={20} style={{ color: '#f59e0b' }} />
+          <div>
+            <h2 className="text-base font-bold text-white">Gestión de Usuarios y Permisos</h2>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Administra accesos y perfiles del sistema</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={fetchUsers} className="p-2 rounded-lg hover:bg-white/10 transition-all" title="Actualizar">
+            <RefreshCw size={15} style={{ color: 'rgba(255,255,255,0.5)' }} />
+          </button>
+          {activeTab === 'usuarios' && (
+            <button
+              onClick={() => { setForm(emptyForm()); setFormError(''); setModalOpen(true); }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:brightness-110"
+              style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}
+            >
+              <Plus size={15} /> Nuevo usuario
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b" style={{ borderColor: '#243f72' }}>
+        {[
+          { id: 'usuarios', label: 'Usuarios' },
+          { id: 'permisos', label: 'Permisos por Perfil' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as 'usuarios' | 'permisos')}
+            className="px-5 py-3 text-sm font-medium transition-all"
+            style={{
+              color: activeTab === tab.id ? '#f59e0b' : 'rgba(255,255,255,0.45)',
+              borderBottom: activeTab === tab.id ? '2px solid #f59e0b' : '2px solid transparent',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Success */}
+      {successMsg && (
+        <div className="mx-6 mt-4 flex items-center gap-2 px-4 py-3 rounded-xl text-sm" style={{ backgroundColor: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.25)', color: '#4ade80' }}>
+          <UserCheck size={15} /> {successMsg}
+        </div>
+      )}
+
+      {/* ── USUARIOS TAB ─────────────────────────────────────────────────────── */}
+      {activeTab === 'usuarios' && (
+        <div className="flex-1 overflow-auto">
+          {/* Info note */}
+          <div className="mx-6 mt-4 mb-2 flex items-start gap-2 px-4 py-3 rounded-xl text-xs" style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', color: 'rgba(255,255,255,0.55)' }}>
+            <Users size={13} className="mt-0.5 flex-shrink-0" style={{ color: '#3b82f6' }} />
+            <span>Los usuarios se crean a partir del personal registrado en la sección <strong className="text-white">Personal</strong>. Aquí puedes gestionar su acceso al sistema (login y contraseña).</span>
+          </div>
+          <table className="w-full">
+            <thead className="sticky top-0 z-10" style={{ backgroundColor: '#132240' }}>
+              <tr className="border-b" style={{ borderColor: '#243f72' }}>
+                {['Empleado', 'Usuario (login)', 'Perfil', 'Contraseña'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i} className="border-b animate-pulse" style={{ borderColor: '#243f72' }}>
+                    {Array.from({ length: 4 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3.5"><div className="h-4 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.07)', width: j === 0 ? '140px' : '100px' }} /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : users.length === 0 ? (
+                <tr><td colSpan={4} className="py-12 text-center text-sm" style={{ color: 'rgba(255,255,255,0.35)' }}>No hay usuarios registrados</td></tr>
+              ) : (
+                users.map((u) => (
+                  <tr key={u.id} className="border-b transition-colors hover:bg-white/5" style={{ borderColor: '#1a2f52' }}>
+                    {/* Empleado (full name from Personal) */}
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: `${ROLE_COLORS[u.appRole]}25`, color: ROLE_COLORS[u.appRole] }}>
+                          {u.fullName ? u.fullName.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase() : '?'}
+                        </div>
+                        <span className="text-sm text-white">{u.fullName || '—'}</span>
+                      </div>
+                    </td>
+                    {/* Login */}
+                    <td className="px-4 py-3.5">
+                      <span className="text-sm font-mono font-semibold" style={{ color: '#f59e0b' }}>@{u.username}</span>
+                    </td>
+                    {/* Perfil (read-only badge) */}
+                    <td className="px-4 py-3.5">
+                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ backgroundColor: `${ROLE_COLORS[u.appRole]}20`, color: ROLE_COLORS[u.appRole] }}>
+                        {ROLE_LABELS[u.appRole]}
+                      </span>
+                    </td>
+                    {/* Password action */}
+                    <td className="px-4 py-3.5">
+                      <button
+                        onClick={() => { setSelectedUser(u); setNewPassword(''); setFormError(''); setPwModalOpen(true); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:brightness-110"
+                        style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}
+                        title="Cambiar contraseña"
+                      >
+                        <Pencil size={12} /> Cambiar contraseña
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── PERMISOS TAB ─────────────────────────────────────────────────────── */}
+      {activeTab === 'permisos' && (
+        <div className="flex-1 overflow-auto p-5">
+          <p className="text-xs mb-4" style={{ color: 'rgba(255,255,255,0.4)' }}>
+            Define qué secciones del sistema puede ver cada perfil. El Administrador siempre tiene acceso completo.
+          </p>
+
+          {permLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#f59e0b', borderTopColor: 'transparent' }} />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3 mb-5">
+                {ALL_ROLES.map((role) => {
+                  const isAdminRole = role === 'admin';
+                  const isExpanded = expandedRole === role;
+                  const rolePerms = permissions[role] || {};
+                  const accessCount = isAdminRole ? PAGE_DEFINITIONS.length : PAGE_DEFINITIONS.filter((p) => rolePerms[p.key]).length;
+
+                  return (
+                    <div key={role} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isExpanded ? ROLE_COLORS[role] + '40' : '#243f72'}` }}>
+                      {/* Role header */}
+                      <button
+                        onClick={() => setExpandedRole(isExpanded ? null : role)}
+                        className="w-full flex items-center justify-between px-4 py-3 transition-all"
+                        style={{ backgroundColor: isExpanded ? `${ROLE_COLORS[role]}10` : 'rgba(255,255,255,0.03)' }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ROLE_COLORS[role] }} />
+                          <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{ROLE_LABELS[role]}</span>
+                          {isAdminRole && (
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                              Acceso total
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{accessCount}/{PAGE_DEFINITIONS.length} secciones</span>
+                          {isExpanded ? <ChevronUp size={15} style={{ color: 'rgba(255,255,255,0.4)' }} /> : <ChevronDown size={15} style={{ color: 'rgba(255,255,255,0.4)' }} />}
+                        </div>
+                      </button>
+
+                      {/* Pages list */}
+                      {isExpanded && (
+                        <div className="border-t" style={{ borderColor: '#243f72' }}>
+                          {['OPERACIONES', 'GESTIÓN', 'ANÁLISIS', 'SISTEMA'].map((group) => {
+                            const groupPages = PAGE_DEFINITIONS.filter((p) => p.group === group);
+                            return (
+                              <div key={group}>
+                                <div className="px-4 py-2 text-xs font-semibold tracking-widest" style={{ color: 'rgba(255,255,255,0.3)', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+                                  {group}
+                                </div>
+                                {groupPages.map((page) => {
+                                  const hasAccess = isAdminRole ? true : (rolePerms[page.key] ?? false);
+                                  return (
+                                    <div
+                                      key={page.key}
+                                      className="flex items-center justify-between px-4 py-2.5 border-t transition-all"
+                                      style={{ borderColor: '#1a2f52', cursor: isAdminRole ? 'default' : 'pointer' }}
+                                      onClick={() => !isAdminRole && togglePermission(role, page.key)}
+                                    >
+                                      <span className="text-sm" style={{ color: hasAccess ? '#f1f5f9' : 'rgba(255,255,255,0.35)' }}>{page.label}</span>
+                                      <div className="flex items-center gap-2">
+                                        {isAdminRole ? (
+                                          <Lock size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
+                                        ) : hasAccess ? (
+                                          <CheckSquare size={17} style={{ color: ROLE_COLORS[role] }} />
+                                        ) : (
+                                          <Square size={17} style={{ color: 'rgba(255,255,255,0.2)' }} />
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={handleSavePermissions}
+                disabled={permSaving}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                style={{ backgroundColor: permSaved ? 'rgba(34,197,94,0.2)' : '#f59e0b', color: permSaved ? '#22c55e' : '#1B3A6B', border: permSaved ? '1px solid rgba(34,197,94,0.4)' : 'none' }}
+              >
+                {permSaving ? (
+                  <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#1B3A6B', borderTopColor: 'transparent' }} />
+                ) : permSaved ? (
+                  <UserCheck size={15} />
+                ) : (
+                  <Shield size={15} />
+                )}
+                {permSaved ? 'Permisos guardados' : 'Guardar Permisos'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Create User Modal ─────────────────────────────────────────────────── */}
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+          <div className="w-full max-w-md rounded-2xl p-6" style={{ backgroundColor: '#1a2535', border: '1px solid #2a3f5f' }}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold" style={{ color: '#f1f5f9' }}>Nuevo Usuario</h2>
+              <button onClick={() => setModalOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              {/* Employee selector */}
+              <div>
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>Empleado (Personal) *</label>
+                <select
+                  value={form.employeeId}
+                  onChange={(e) => handleEmployeeSelect(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+                  style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: form.employeeId ? '#f1f5f9' : 'rgba(255,255,255,0.35)' }}
+                >
+                  <option value="" style={{ backgroundColor: '#1a2535', color: 'rgba(255,255,255,0.4)' }}>
+                    {empLoading ? 'Cargando empleados…' : '— Selecciona un empleado —'}
+                  </option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id} style={{ backgroundColor: '#1a2535', color: 'white' }}>
+                      {emp.name} ({emp.role})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>El nombre y perfil se toman automáticamente del empleado seleccionado.</p>
+              </div>
+
+              {/* Auto-filled info */}
+              {form.employeeId && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-lg" style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: `${ROLE_COLORS[form.appRole]}25`, color: ROLE_COLORS[form.appRole] }}>
+                    {form.fullName.split(' ').slice(0, 2).map((n) => n[0]).join('').toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">{form.fullName}</p>
+                    <p className="text-xs" style={{ color: ROLE_COLORS[form.appRole] }}>{ROLE_LABELS[form.appRole]}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Username */}
+              <div>
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>Usuario (login) *</label>
+                <input
+                  type="text"
+                  value={form.username}
+                  onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-lg text-sm outline-none"
+                  style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                  placeholder="usuario123"
+                />
+              </div>
+
+              {/* Password */}
+              <div>
+                <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>Contraseña *</label>
+                <div className="relative">
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                    className="w-full px-4 py-2.5 rounded-lg text-sm outline-none pr-10"
+                    style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                    placeholder="••••••••"
+                  />
+                  <button type="button" onClick={() => setShowPw((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                    {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+
+              {formError && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                  <AlertCircle size={13} /> {formError}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button onClick={() => setModalOpen(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>Cancelar</button>
+              <button onClick={handleCreateUser} disabled={saving} className="flex-1 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2" style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+                {saving ? <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#1B3A6B', borderTopColor: 'transparent' }} /> : null}
+                Crear Usuario
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Password Modal ─────────────────────────────────────────────── */}
+      {pwModalOpen && selectedUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+          <div className="w-full max-w-sm rounded-2xl p-6" style={{ backgroundColor: '#1a2535', border: '1px solid #2a3f5f' }}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>Cambiar Contraseña</h2>
+              <button onClick={() => setPwModalOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex items-center gap-3 mb-4 px-3 py-2.5 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: `${ROLE_COLORS[selectedUser.appRole]}25`, color: ROLE_COLORS[selectedUser.appRole] }}>
+                {selectedUser.fullName ? selectedUser.fullName.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase() : '?'}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">{selectedUser.fullName || selectedUser.username}</p>
+                <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.45)' }}>@{selectedUser.username}</p>
+              </div>
+            </div>
+            <div className="relative mb-4">
+              <input
+                type={showPw ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg text-sm outline-none pr-10"
+                style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                placeholder="Nueva contraseña"
+              />
+              <button type="button" onClick={() => setShowPw((p) => !p)} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            {formError && <p className="text-xs mb-3" style={{ color: '#f87171' }}>{formError}</p>}
+            <div className="flex gap-3">
+              <button onClick={() => setPwModalOpen(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>Cancelar</button>
+              <button
+                onClick={handleChangePassword}
+                disabled={saving || newPassword.length < 4}
+                className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+                style={{ backgroundColor: '#f59e0b', color: '#1B3A6B', opacity: newPassword.length < 4 ? 0.5 : 1 }}
+              >
+                Actualizar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
