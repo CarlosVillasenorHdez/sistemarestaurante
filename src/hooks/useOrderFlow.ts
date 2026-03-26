@@ -121,7 +121,7 @@ export function useOrderFlow() {
       discount: 0,
       total: 0,
       status: 'abierta',
-      kitchen_status: 'pendiente',
+      kitchen_status: null,
       opened_at: now,
       branch: branchName,
     });
@@ -332,5 +332,22 @@ export function useOrderFlow() {
     }
   }, [supabase]);
 
-  return { ensureOpenOrder, syncItems, closeOrder, cancelOrder, loadOrderItems };
+  // ── Send order to kitchen (sets kitchen_status to 'pendiente') ─────────────
+  // Call this when the cashier is done adding items and wants the kitchen to start.
+  // Until this is called the order exists in DB but is invisible to the KDS.
+
+  const sendToKitchen = useCallback(async (orderId: string): Promise<boolean> => {
+    const { error } = await supabase.from('orders').update({
+      kitchen_status: 'pendiente',
+      updated_at: new Date().toISOString(),
+    }).eq('id', orderId);
+
+    if (error) {
+      toast.error('Error al enviar a cocina: ' + error.message);
+      return false;
+    }
+    return true;
+  }, [supabase]);
+
+  return { ensureOpenOrder, syncItems, closeOrder, cancelOrder, loadOrderItems, sendToKitchen };
 }

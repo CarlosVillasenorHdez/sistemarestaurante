@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Minus, Plus, Trash2, ShoppingCart, Tag, ChevronDown, Printer } from 'lucide-react';
+import { Minus, Plus, Trash2, ShoppingCart, Tag, ChevronDown, Send, Printer } from 'lucide-react';
 import { Table, OrderItem } from './POSClient';
 
 interface OrderPanelProps {
@@ -17,6 +17,10 @@ interface OrderPanelProps {
   discount: { type: 'pct' | 'fixed'; value: number };
   onDiscountChange: (d: { type: 'pct' | 'fixed'; value: number }) => void;
   onCheckout: () => void;
+  onSendToKitchen: () => void;
+  onShowMenu: () => void;
+  kitchenSent: boolean;
+  sendingToKitchen: boolean;
 }
 
 export default function OrderPanel({
@@ -32,11 +36,17 @@ export default function OrderPanel({
   discount,
   onDiscountChange,
   onCheckout,
+  onSendToKitchen,
+  onShowMenu,
+  kitchenSent,
+  sendingToKitchen,
 }: OrderPanelProps) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
 
   const tableLabel = mergeGroupLabel ?? (selectedTable ? selectedTable.name : 'Sin mesa');
+  // Real piece count (not distinct dishes)
+  const totalPieces = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   const applyDiscount = () => {
     const val = parseFloat(discountInput);
@@ -69,11 +79,11 @@ export default function OrderPanel({
         {selectedTable && (
           <div className="flex items-center gap-2">
             <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {orderItems.length} items
+              {totalPieces} {totalPieces === 1 ? 'pieza' : 'piezas'}
             </span>
-            {selectedTable.currentOrderId && (
-              <span className="font-mono text-xs" style={{ color: '#f59e0b' }}>
-                {selectedTable.currentOrderId}
+            {kitchenSent && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(34,197,94,0.2)', color: '#4ade80' }}>
+                En cocina
               </span>
             )}
           </div>
@@ -111,15 +121,12 @@ export default function OrderPanel({
             <p className="text-xs text-gray-400 mb-4 leading-relaxed">
               Agrega platillos desde el menú para {selectedTable.name}
             </p>
-            <button
-              onClick={onCheckout}
-              className="btn-primary text-xs py-2 px-4"
-            >
+            <button onClick={onShowMenu} className="btn-primary text-xs py-2 px-4">
               Ver Menú
             </button>
           </div>
         ) : (
-          <div className="divide-y" style={{ divideColor: '#f9fafb' }}>
+          <div className="divide-y divide-gray-50">
             {orderItems.map((item) => (
               <div
                 key={item.menuItem.id}
@@ -132,10 +139,9 @@ export default function OrderPanel({
                     {item.menuItem.name}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                    ${item.menuItem.price} c/u
+                    ${item.menuItem.price.toFixed(2)} c/u
                   </p>
 
-                  {/* Quantity controls */}
                   <div className="flex items-center gap-2 mt-2">
                     <button
                       onClick={() => onUpdateQty(item.menuItem.id, -1)}
@@ -174,7 +180,7 @@ export default function OrderPanel({
         )}
       </div>
 
-      {/* Totals + Payment — only show when items exist */}
+      {/* Totals + Actions */}
       {orderItems.length > 0 && selectedTable && (
         <div className="flex-shrink-0 border-t" style={{ borderColor: '#e5e7eb' }}>
           {/* Discount toggle */}
@@ -262,20 +268,47 @@ export default function OrderPanel({
 
           {/* Action buttons */}
           <div className="px-4 pb-4 flex flex-col gap-2">
+            {/* Enviar a cocina — only show if not yet sent, or show re-send if already sent */}
+            {!kitchenSent ? (
+              <button
+                onClick={onSendToKitchen}
+                disabled={sendingToKitchen || orderItems.length === 0 || !selectedTable.currentOrderId}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50"
+                style={{ backgroundColor: '#059669', color: 'white' }}
+              >
+                <Send size={15} />
+                {sendingToKitchen ? 'Enviando...' : 'Enviar a Cocina'}
+              </button>
+            ) : (
+              <button
+                onClick={onSendToKitchen}
+                disabled={sendingToKitchen}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+                style={{ backgroundColor: 'rgba(5,150,105,0.1)', color: '#059669', border: '1px solid rgba(5,150,105,0.25)' }}
+              >
+                <Send size={13} />
+                {sendingToKitchen ? 'Enviando...' : 'Reenviar a Cocina'}
+              </button>
+            )}
+
             <button
               onClick={onCheckout}
-              className="btn-primary w-full justify-center py-3 text-base"
               disabled={orderItems.length === 0}
+              className="btn-primary w-full justify-center py-3 text-base"
             >
               Cobrar ${total.toFixed(2)}
             </button>
+
             <div className="flex gap-2">
-              <button className="btn-secondary flex-1 text-xs py-2 justify-center">
+              <button
+                onClick={() => {}}
+                className="btn-secondary flex-1 text-xs py-2 justify-center"
+              >
                 <Printer size={13} />
                 Imprimir
               </button>
               <button
-                onClick={onCheckout}
+                onClick={onShowMenu}
                 className="btn-secondary flex-1 text-xs py-2 justify-center"
               >
                 <Plus size={13} />
