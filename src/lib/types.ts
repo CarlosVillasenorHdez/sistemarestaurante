@@ -26,7 +26,7 @@ export interface DbOrder {
   discount: number;
   total: number;
   status: 'abierta' | 'preparacion' | 'lista' | 'cerrada' | 'cancelada';
-  kitchen_status: 'pendiente' | 'preparacion' | 'lista' | 'entregada' | null;
+  kitchen_status: 'en_edicion' | 'pendiente' | 'preparacion' | 'lista' | 'entregada';
   pay_method: 'efectivo' | 'tarjeta' | null;
   opened_at: string | null;
   closed_at: string | null;
