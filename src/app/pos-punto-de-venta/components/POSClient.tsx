@@ -89,6 +89,8 @@ export default function POSClient() {
   const [view, setView] = useState<'tables' | 'menu'>('tables');
   const [discount, setDiscount] = useState<{ type: 'pct' | 'fixed'; value: number }>({ type: 'pct', value: 0 });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [kitchenSent, setKitchenSent] = useState(false);
+  const [sendingToKitchen, setSendingToKitchen] = useState(false);
 
   // Layout state
   const [layoutTables, setLayoutTables] = useState<LayoutTablePosition[]>([]);
@@ -100,7 +102,7 @@ export default function POSClient() {
   const [branchName, setBranchName] = useState('Sucursal Principal');
 
   const supabase = createClient();
-  const { closeOrder, cancelOrder: cancelOrderFlow } = useOrderFlow();
+  const { closeOrder, cancelOrder: cancelOrderFlow, sendToKitchen } = useOrderFlow();
   const IVA_RATE = 0.16;
 
   const subtotal = orderItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
@@ -306,9 +308,15 @@ export default function POSClient() {
     const primary = getGroupPrimary(table);
     setSelectedTable(primary);
     setDiscount({ type: 'pct', value: 0 });
+    setKitchenSent(false);
 
     // Load existing open order if the table already has one
     if (primary.currentOrderId) {
+      // Check if already sent to kitchen
+      supabase.from('orders').select('kitchen_status').eq('id', primary.currentOrderId).single()
+        .then(({ data }) => {
+          setKitchenSent(data?.kitchen_status != null && data.kitchen_status !== null);
+        });
       const { data: existingItems } = await supabase
         .from('order_items').select('*').eq('order_id', primary.currentOrderId);
 
@@ -394,6 +402,21 @@ export default function POSClient() {
   }, [supabase, tables, branchName, appUser]);
 
   // ─── Add / update items ───────────────────────────────────────────────────
+
+  // ─── Send order to kitchen ───────────────────────────────────────────────
+  const handleSendToKitchen = async () => {
+    if (!selectedTable?.currentOrderId) {
+      toast.error('Agrega al menos un platillo antes de enviar a cocina');
+      return;
+    }
+    setSendingToKitchen(true);
+    const ok = await sendToKitchen(selectedTable.currentOrderId);
+    if (ok) {
+      setKitchenSent(true);
+      toast.success(`Orden enviada a cocina — ${mergeGroupLabel ?? selectedTable.name}`);
+    }
+    setSendingToKitchen(false);
+  };
 
   const handleAddItem = useCallback(async (item: MenuItem) => {
     if (!item.available || !selectedTable) return;
@@ -509,6 +532,7 @@ export default function POSClient() {
 
     await fetchTables();
     setSelectedTable(null); setOrderItems([]); setView('tables');
+    setKitchenSent(false);
     toast.success(`${selectedTable.name} liberada`);
   };
 
@@ -546,6 +570,7 @@ export default function POSClient() {
     await fetchTables();
     setShowPaymentModal(false);
     setOrderItems([]); setSelectedTable(null); setView('tables');
+    setKitchenSent(false);
     toast.success(`Pago de $${total.toFixed(2)} procesado con ${method === 'efectivo' ? 'Efectivo' : 'Tarjeta'}. ¡Orden cerrada!`);
   };
 
@@ -555,7 +580,7 @@ export default function POSClient() {
       status: 'ocupada', opened_at: now, updated_at: now,
     }).eq('id', table.id);
     await fetchTables();
-    handleTableSelect({ ...table, status: 'ocupada', openedAt: now });
+    await handleTableSelect({ ...table, status: 'ocupada', openedAt: now });
   };
 
   const mergeGroupLabel = selectedTable?.mergeGroupId
@@ -702,6 +727,10 @@ export default function POSClient() {
             onRemoveItem={handleRemoveItem}
             onDiscountChange={setDiscount}
             onCheckout={() => setShowPaymentModal(true)}
+            onSendToKitchen={handleSendToKitchen}
+            onShowMenu={() => setView('menu')}
+            kitchenSent={kitchenSent}
+            sendingToKitchen={sendingToKitchen}
           />
         </div>
       </div>
