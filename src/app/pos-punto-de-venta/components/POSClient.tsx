@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import TableMap from './TableMap';
@@ -75,6 +76,7 @@ function MenuSkeleton() {
 }
 
 export default function POSClient() {
+  const { appUser } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
@@ -103,10 +105,10 @@ export default function POSClient() {
   const taxableAmount = subtotal - discountAmount;
   const iva = taxableAmount * IVA_RATE;
   const total = taxableAmount + iva;
+  const itemCount = orderItems.reduce((s, i) => s + i.quantity, 0);
 
   const fetchTables = useCallback(async () => {
     setLoadingTables(true);
-    // Fetch system_config and restaurant_tables in parallel, layout separately (may 404)
     const [{ data: configData }, { data, error }] = await Promise.all([
       supabase.from('system_config').select('config_value').eq('config_key', 'table_count').single(),
       supabase.from('restaurant_tables').select('*').order('number'),
@@ -137,7 +139,6 @@ export default function POSClient() {
         mergeGroupId: t.merge_group_id || undefined,
       }));
 
-      // If system_config has more tables than DB, auto-create missing ones
       if (configuredCount > tableList.length) {
         const existing = new Set(tableList.map((t) => t.number));
         const toInsert = [];
@@ -150,27 +151,18 @@ export default function POSClient() {
           const { data: inserted } = await supabase.from('restaurant_tables').insert(toInsert).select();
           if (inserted) {
             const newTables = inserted.map((t: any) => ({
-              id: t.id,
-              number: t.number,
-              name: t.name,
-              capacity: t.capacity,
+              id: t.id, number: t.number, name: t.name, capacity: t.capacity,
               status: t.status as TableStatus,
-              currentOrderId: undefined,
-              waiter: undefined,
-              openedAt: undefined,
-              itemCount: undefined,
-              partialTotal: undefined,
-              mergeGroupId: undefined,
+              currentOrderId: undefined, waiter: undefined, openedAt: undefined,
+              itemCount: undefined, partialTotal: undefined, mergeGroupId: undefined,
             }));
             tableList = [...tableList, ...newTables].sort((a, b) => a.number - b.number);
           }
         }
       }
-
       setTables(tableList);
     }
 
-    // Apply layout data (already fetched in parallel above)
     if (layoutData) {
       setLayoutId(layoutData.id);
       setLayoutTables((layoutData.tables_layout as LayoutTablePosition[]) || []);
@@ -178,7 +170,6 @@ export default function POSClient() {
       setLayoutTables([]);
       setLayoutId(null);
     }
-
     setLoadingTables(false);
   }, [supabase]);
 
@@ -187,18 +178,13 @@ export default function POSClient() {
     const { data, error } = await supabase.from('dishes').select('*').eq('available', true).order('category').order('name');
     if (!error && data) {
       setMenuItems(data.map((d) => ({
-        id: d.id,
-        name: d.name,
-        category: d.category,
-        price: Number(d.price),
-        description: d.description,
-        available: d.available,
-        emoji: d.emoji,
-        popular: d.popular,
+        id: d.id, name: d.name, category: d.category,
+        price: Number(d.price), description: d.description,
+        available: d.available, emoji: d.emoji, popular: d.popular,
       })));
     }
     setLoadingMenu(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     fetchTables();
@@ -207,60 +193,78 @@ export default function POSClient() {
 
   useEffect(() => {
     supabase.from('system_config')
-      .select('config_value')
-      .eq('config_key', 'branch_name')
-      .single()
+      .select('config_value').eq('config_key', 'branch_name').single()
       .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
   }, []);
 
   // ─── Merge helpers ────────────────────────────────────────────────────────
 
-  /** Given a table, find all sibling tables in the same merge group */
   const getMergeGroup = useCallback((table: Table): Table[] => {
     if (!table.mergeGroupId) return [table];
     return tables.filter((t) => t.mergeGroupId === table.mergeGroupId);
   }, [tables]);
 
-  /** Resolve the canonical table for a merge group (the one with currentOrderId) */
   const getGroupPrimary = useCallback((table: Table): Table => {
     if (!table.mergeGroupId) return table;
     const group = tables.filter((t) => t.mergeGroupId === table.mergeGroupId);
     return group.find((t) => t.currentOrderId) ?? group[0] ?? table;
   }, [tables]);
 
+  // ─── Sync order_items to DB (called after any item change) ───────────────
+
+  const syncOrderToTable = useCallback(async (
+    orderId: string,
+    tableIds: string[],
+    items: OrderItem[],
+    totalAmount: number,
+  ) => {
+    const count = items.reduce((s, i) => s + i.quantity, 0);
+    // Upsert order_items: delete existing then re-insert
+    await supabase.from('order_items').delete().eq('order_id', orderId);
+    if (items.length > 0) {
+      await supabase.from('order_items').insert(
+        items.map((item) => ({
+          order_id: orderId,
+          dish_id: item.menuItem.id,
+          name: item.menuItem.name,
+          qty: item.quantity,
+          price: item.menuItem.price,
+          emoji: item.menuItem.emoji,
+        }))
+      );
+    }
+    // Update table counters
+    await supabase.from('restaurant_tables').update({
+      item_count: count,
+      partial_total: totalAmount,
+      updated_at: new Date().toISOString(),
+    }).in('id', tableIds);
+  }, [supabase]);
+
   // ─── Table select ─────────────────────────────────────────────────────────
 
   const handleTableSelect = async (table: Table) => {
     if (mergeMode) {
-      // In merge mode, toggle selection
       setMergeSelection((prev) =>
         prev.includes(table.id) ? prev.filter((id) => id !== table.id) : [...prev, table.id]
       );
       return;
     }
 
-    // If table belongs to a merge group, use the primary table's order
     const primary = getGroupPrimary(table);
     setSelectedTable(primary);
     setDiscount({ type: 'pct', value: 0 });
 
-    // Load existing order items if the table already has an open order
+    // Load existing open order if the table already has one
     if (primary.currentOrderId) {
       const { data: existingItems } = await supabase
-        .from('order_items')
-        .select('*')
-        .eq('order_id', primary.currentOrderId);
+        .from('order_items').select('*').eq('order_id', primary.currentOrderId);
 
       if (existingItems && existingItems.length > 0) {
-        // Re-hydrate order items with menu item data
         const dishIds = [...new Set(existingItems.map((i: any) => i.dish_id).filter(Boolean))];
         let dishMap: Record<string, MenuItem> = {};
-
         if (dishIds.length > 0) {
-          const { data: dishes } = await supabase
-            .from('dishes')
-            .select('*')
-            .in('id', dishIds);
+          const { data: dishes } = await supabase.from('dishes').select('*').in('id', dishIds);
           (dishes || []).forEach((d: any) => {
             dishMap[d.id] = {
               id: d.id, name: d.name, category: d.category,
@@ -269,16 +273,10 @@ export default function POSClient() {
             };
           });
         }
-
         const restored: OrderItem[] = existingItems.map((i: any) => ({
           menuItem: dishMap[i.dish_id] ?? {
-            id: i.dish_id ?? i.id,
-            name: i.name,
-            category: '',
-            price: Number(i.price),
-            description: '',
-            available: true,
-            emoji: i.emoji ?? '🍽️',
+            id: i.dish_id ?? i.id, name: i.name, category: '',
+            price: Number(i.price), description: '', available: true, emoji: i.emoji ?? '\u{1F37D}\uFE0F',
           },
           quantity: i.qty,
         }));
@@ -289,9 +287,110 @@ export default function POSClient() {
     } else {
       setOrderItems([]);
     }
-
     setView('menu');
   };
+
+  // ─── Open order in DB when first item is added to a free table ────────────
+
+  const ensureOpenOrder = useCallback(async (table: Table): Promise<string> => {
+    if (table.currentOrderId) return table.currentOrderId;
+
+    const orderId = `ORD-${Date.now()}`;
+    const now = new Date().toISOString();
+    const waiterName = appUser?.fullName || 'POS';
+
+    await supabase.from('orders').insert({
+      id: orderId,
+      mesa: table.name,
+      mesa_num: table.number,
+      mesero: waiterName,
+      subtotal: 0,
+      iva: 0,
+      discount: 0,
+      total: 0,
+      status: 'abierta',
+      kitchen_status: 'pendiente',
+      opened_at: now,
+      branch: branchName,
+    });
+
+    const groupIds = table.mergeGroupId
+      ? tables.filter((t) => t.mergeGroupId === table.mergeGroupId).map((t) => t.id)
+      : [table.id];
+
+    await supabase.from('restaurant_tables').update({
+      status: 'ocupada',
+      current_order_id: orderId,
+      waiter: waiterName,
+      opened_at: now,
+      item_count: 0,
+      partial_total: 0,
+      updated_at: now,
+    }).in('id', groupIds);
+
+    // Update local state so subsequent calls find the orderId
+    setSelectedTable((prev) => prev ? { ...prev, currentOrderId: orderId, status: 'ocupada', openedAt: now, waiter: waiterName } : prev);
+    setTables((prev) => prev.map((t) =>
+      groupIds.includes(t.id) ? { ...t, currentOrderId: orderId, status: 'ocupada', openedAt: now, waiter: waiterName } : t
+    ));
+
+    return orderId;
+  }, [supabase, tables, branchName, appUser]);
+
+  // ─── Add / update items ───────────────────────────────────────────────────
+
+  const handleAddItem = useCallback(async (item: MenuItem) => {
+    if (!item.available || !selectedTable) return;
+
+    const newItems = (() => {
+      const existing = orderItems.find((o) => o.menuItem.id === item.id);
+      if (existing) return orderItems.map((o) => o.menuItem.id === item.id ? { ...o, quantity: o.quantity + 1 } : o);
+      return [...orderItems, { menuItem: item, quantity: 1 }];
+    })();
+    setOrderItems(newItems);
+
+    // Ensure an open order exists in DB, then sync items
+    const orderId = await ensureOpenOrder(selectedTable);
+    const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
+    const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+    const groupIds = selectedTable.mergeGroupId
+      ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
+      : [selectedTable.id];
+
+    await syncOrderToTable(orderId, groupIds, newItems, newTotal);
+  }, [selectedTable, orderItems, discount, tables, ensureOpenOrder, syncOrderToTable]);
+
+  const handleUpdateQty = useCallback(async (itemId: string, delta: number) => {
+    if (!selectedTable) return;
+    const newItems = orderItems
+      .map((o) => o.menuItem.id === itemId ? { ...o, quantity: Math.max(0, o.quantity + delta) } : o)
+      .filter((o) => o.quantity > 0);
+    setOrderItems(newItems);
+
+    if (selectedTable.currentOrderId) {
+      const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
+      const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+      const groupIds = selectedTable.mergeGroupId
+        ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
+        : [selectedTable.id];
+      await syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
+    }
+  }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
+
+  const handleRemoveItem = useCallback(async (itemId: string) => {
+    if (!selectedTable) return;
+    const newItems = orderItems.filter((o) => o.menuItem.id !== itemId);
+    setOrderItems(newItems);
+
+    if (selectedTable.currentOrderId) {
+      const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
+      const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+      const groupIds = selectedTable.mergeGroupId
+        ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
+        : [selectedTable.id];
+      await syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
+    }
+  }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
 
   // ─── Confirm merge ────────────────────────────────────────────────────────
 
@@ -300,24 +399,16 @@ export default function POSClient() {
       toast.error('Selecciona al menos 2 mesas para unir');
       return;
     }
-
     const selectedTables = tables.filter((t) => mergeSelection.includes(t.id));
-
-    // Check if any already has a different merge group — unify them
     const existingGroups = Array.from(new Set(selectedTables.map((t) => t.mergeGroupId).filter(Boolean)));
     const groupId = existingGroups[0] ?? crypto.randomUUID();
-
-    // Assign all selected tables to the same merge group
-    await supabase
-      .from('restaurant_tables')
+    await supabase.from('restaurant_tables')
       .update({ merge_group_id: groupId, updated_at: new Date().toISOString() })
       .in('id', mergeSelection);
-
     setMergeMode(false);
     setMergeSelection([]);
     await fetchTables();
-    const names = selectedTables.map((t) => t.name).join(', ');
-    toast.success(`Mesas unidas: ${names} — comparten el mismo ticket`);
+    toast.success(`Mesas unidas: ${selectedTables.map((t) => t.name).join(', ')} — comparten el mismo ticket`);
   };
 
   // ─── Unmerge ──────────────────────────────────────────────────────────────
@@ -325,23 +416,20 @@ export default function POSClient() {
   const handleUnmerge = async (table: Table) => {
     if (!table.mergeGroupId) return;
     const group = tables.filter((t) => t.mergeGroupId === table.mergeGroupId);
-    await supabase
-      .from('restaurant_tables')
+    await supabase.from('restaurant_tables')
       .update({ merge_group_id: null, updated_at: new Date().toISOString() })
       .in('id', group.map((t) => t.id));
     await fetchTables();
     toast.success('Mesas separadas correctamente');
     if (selectedTable?.mergeGroupId === table.mergeGroupId) {
-      setSelectedTable(null);
-      setOrderItems([]);
-      setView('tables');
+      setSelectedTable(null); setOrderItems([]); setView('tables');
     }
   };
 
   // ─── Cancel / Free table ──────────────────────────────────────────────────
+
   const handleCancelTable = async () => {
     if (!selectedTable) return;
-
     const confirmed = window.confirm(
       `¿Seguro que deseas cancelar y liberar ${selectedTable.name}?\n\nEsta acción eliminará todos los artículos de la orden sin cobrar.`
     );
@@ -351,236 +439,172 @@ export default function POSClient() {
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
 
+    // Cancel the open order in DB if it exists
+    if (selectedTable.currentOrderId) {
+      await supabase.from('orders').update({
+        status: 'cancelada', updated_at: new Date().toISOString(),
+      }).eq('id', selectedTable.currentOrderId);
+    }
+
     await supabase.from('restaurant_tables').update({
-      status: 'libre',
-      current_order_id: null,
-      waiter: null,
-      opened_at: null,
-      item_count: null,
-      partial_total: null,
-      merge_group_id: null,
-      updated_at: new Date().toISOString(),
+      status: 'libre', current_order_id: null, waiter: null,
+      opened_at: null, item_count: null, partial_total: null,
+      merge_group_id: null, updated_at: new Date().toISOString(),
     }).in('id', groupIds);
 
     await fetchTables();
-    setSelectedTable(null);
-    setOrderItems([]);
-    setView('tables');
+    setSelectedTable(null); setOrderItems([]); setView('tables');
     toast.success(`${selectedTable.name} liberada`);
   };
 
-  const handleAddItem = (item: MenuItem) => {
-    if (!item.available) return;
-    setOrderItems((prev) => {
-      const existing = prev.find((o) => o.menuItem.id === item.id);
-      if (existing) return prev.map((o) => o.menuItem.id === item.id ? { ...o, quantity: o.quantity + 1 } : o);
-      return [...prev, { menuItem: item, quantity: 1 }];
-    });
-  };
-
-  const handleUpdateQty = (itemId: string, delta: number) => {
-    setOrderItems((prev) =>
-      prev.map((o) => o.menuItem.id === itemId ? { ...o, quantity: Math.max(0, o.quantity + delta) } : o).filter((o) => o.quantity > 0)
-    );
-  };
-
-  const handleRemoveItem = (itemId: string) => {
-    setOrderItems((prev) => prev.filter((o) => o.menuItem.id !== itemId));
-  };
+  // ─── Payment ──────────────────────────────────────────────────────────────
 
   const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
-    if (selectedTable) {
-      const orderId = `ORD-${Date.now()}`;
-      const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    if (!selectedTable) return;
 
-      await supabase.from('orders').insert({
-        id: orderId,
-        mesa: selectedTable.name,
-        mesa_num: selectedTable.number,
-        mesero: selectedTable.waiter || 'Sin asignar',
+    const now = new Date().toISOString();
+    const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+    const groupIds = selectedTable.mergeGroupId
+      ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
+      : [selectedTable.id];
+
+    if (selectedTable.currentOrderId) {
+      // Update the existing open order to closed
+      await supabase.from('orders').update({
         subtotal,
         iva,
         discount: discountAmount,
         total,
         status: 'cerrada',
+        kitchen_status: 'entregada',
         pay_method: method,
-        opened_at: selectedTable.openedAt || now,
         closed_at: now,
+        updated_at: now,
+      }).eq('id', selectedTable.currentOrderId);
+
+      // Sync final order_items (in case discount changed totals)
+      await supabase.from('order_items').delete().eq('order_id', selectedTable.currentOrderId);
+      await supabase.from('order_items').insert(
+        orderItems.map((item) => ({
+          order_id: selectedTable.currentOrderId,
+          dish_id: item.menuItem.id,
+          name: item.menuItem.name,
+          qty: item.quantity,
+          price: item.menuItem.price,
+          emoji: item.menuItem.emoji,
+        }))
+      );
+
+      // ─── Deduct inventory (parallel + resilient) ──────────────────────
+      const recipeResults = await Promise.all(
+        orderItems.map((orderItem) =>
+          supabase.from('dish_recipes')
+            .select('ingredient_id, quantity, ingredients(stock, name, unit)')
+            .eq('dish_id', orderItem.menuItem.id)
+            .then((res) => ({ orderItem, data: res.data }))
+        )
+      );
+
+      type StockUpdate = { ingredientId: string; deductQty: number; currentStock: number; newStock: number; dishName: string; dishQty: number };
+      const stockUpdates: StockUpdate[] = [];
+      for (const { orderItem, data: recipeItems } of recipeResults) {
+        if (!recipeItems) continue;
+        for (const recipeItem of recipeItems) {
+          const ingredient = (recipeItem as any).ingredients;
+          if (!ingredient) continue;
+          const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
+          const currentStock = Number(ingredient.stock);
+          stockUpdates.push({
+            ingredientId: recipeItem.ingredient_id, deductQty, currentStock,
+            newStock: Math.max(0, currentStock - deductQty),
+            dishName: orderItem.menuItem.name, dishQty: orderItem.quantity,
+          });
+        }
+      }
+      if (stockUpdates.length > 0) {
+        await Promise.allSettled([
+          ...stockUpdates.map((u) => supabase.from('ingredients')
+            .update({ stock: u.newStock, updated_at: now }).eq('id', u.ingredientId)),
+          ...stockUpdates.map((u) => supabase.from('stock_movements').insert({
+            ingredient_id: u.ingredientId, movement_type: 'salida',
+            quantity: u.deductQty, previous_stock: u.currentStock, new_stock: u.newStock,
+            reason: `Venta: ${u.dishName} x${u.dishQty} — Orden ${selectedTable.currentOrderId}`,
+            created_by: 'Sistema POS',
+          })),
+        ]);
+      }
+      // ─────────────────────────────────────────────────────────────────
+    } else {
+      // Edge case: no open order exists yet (shouldn't happen, but handle gracefully)
+      const orderId = `ORD-${Date.now()}`;
+      await supabase.from('orders').insert({
+        id: orderId, mesa: selectedTable.name, mesa_num: selectedTable.number,
+        mesero: selectedTable.waiter || appUser?.fullName || 'POS',
+        subtotal, iva, discount: discountAmount, total,
+        status: 'cerrada', kitchen_status: 'entregada',
+        pay_method: method, opened_at: selectedTable.openedAt || now, closed_at: now,
         branch: branchName,
       });
-
-      if (orderItems.length > 0) {
-        await supabase.from('order_items').insert(
-          orderItems.map((item) => ({
-            order_id: orderId,
-            name: item.menuItem.name,
-            qty: item.quantity,
-            price: item.menuItem.price,
-            emoji: item.menuItem.emoji,
-          }))
-        );
-
-        // ─── Deduct inventory based on dish recipes (with rollback) ──────
-        // 1. Collect all recipe requirements first, then apply all at once
-        type StockUpdate = {
-          ingredientId: string;
-          deductQty: number;
-          currentStock: number;
-          newStock: number;
-          ingredientName: string;
-          dishName: string;
-          dishQty: number;
-        };
-
-        const stockUpdates: StockUpdate[] = [];
-
-        // Fetch all recipes in parallel
-        const recipeResults = await Promise.all(
-          orderItems.map((orderItem) =>
-            supabase
-              .from('dish_recipes')
-              .select('ingredient_id, quantity, ingredients(stock, name, unit)')
-              .eq('dish_id', orderItem.menuItem.id)
-              .then((res) => ({ orderItem, data: res.data }))
-          )
-        );
-
-        for (const { orderItem, data: recipeItems } of recipeResults) {
-          if (!recipeItems) continue;
-          for (const recipeItem of recipeItems) {
-            const ingredient = (recipeItem as any).ingredients;
-            if (!ingredient) continue;
-            const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
-            const currentStock = Number(ingredient.stock);
-            const newStock = Math.max(0, currentStock - deductQty);
-            stockUpdates.push({
-              ingredientId: recipeItem.ingredient_id,
-              deductQty,
-              currentStock,
-              newStock,
-              ingredientName: ingredient.name,
-              dishName: orderItem.menuItem.name,
-              dishQty: orderItem.quantity,
-            });
-          }
-        }
-
-        // 2. Apply all stock updates + movement logs in parallel
-        if (stockUpdates.length > 0) {
-          const updateResults = await Promise.allSettled([
-            ...stockUpdates.map((u) =>
-              supabase
-                .from('ingredients')
-                .update({ stock: u.newStock, updated_at: new Date().toISOString() })
-                .eq('id', u.ingredientId)
-            ),
-            ...stockUpdates.map((u) =>
-              supabase.from('stock_movements').insert({
-                ingredient_id: u.ingredientId,
-                movement_type: 'salida',
-                quantity: u.deductQty,
-                previous_stock: u.currentStock,
-                new_stock: u.newStock,
-                reason: `Venta: ${u.dishName} x${u.dishQty} — Orden ${orderId}`,
-                created_by: 'Sistema POS',
-              })
-            ),
-          ]);
-
-          const failed = updateResults.filter((r) => r.status === 'rejected');
-          if (failed.length > 0) {
-            console.error(`[POS] ${failed.length} actualizaciones de inventario fallaron:`, failed);
-          }
-        }
-        // ─────────────────────────────────────────────────────────────────
-      }
-
-      // Free all tables in the merge group
-      const groupIds = selectedTable.mergeGroupId
-        ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
-        : [selectedTable.id];
-
-      await supabase.from('restaurant_tables').update({
-        status: 'libre',
-        current_order_id: null,
-        waiter: null,
-        opened_at: null,
-        item_count: null,
-        partial_total: null,
-        merge_group_id: null,
-        updated_at: new Date().toISOString(),
-      }).in('id', groupIds);
-
-      await fetchTables();
+      await supabase.from('order_items').insert(
+        orderItems.map((item) => ({
+          order_id: orderId, dish_id: item.menuItem.id,
+          name: item.menuItem.name, qty: item.quantity, price: item.menuItem.price, emoji: item.menuItem.emoji,
+        }))
+      );
     }
 
+    // Free all tables in the group
+    await supabase.from('restaurant_tables').update({
+      status: 'libre', current_order_id: null, waiter: null,
+      opened_at: null, item_count: null, partial_total: null,
+      merge_group_id: null, updated_at: now,
+    }).in('id', groupIds);
+
+    await fetchTables();
     setShowPaymentModal(false);
-    setOrderItems([]);
-    setSelectedTable(null);
-    setView('tables');
+    setOrderItems([]); setSelectedTable(null); setView('tables');
     toast.success(`Pago de $${total.toFixed(2)} procesado con ${method === 'efectivo' ? 'Efectivo' : 'Tarjeta'}. ¡Orden cerrada!`);
   };
 
   const handleMarkTableOccupied = async (table: Table) => {
-    const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const now = new Date().toISOString();
     await supabase.from('restaurant_tables').update({
-      status: 'ocupada',
-      opened_at: now,
-      updated_at: new Date().toISOString(),
+      status: 'ocupada', opened_at: now, updated_at: now,
     }).eq('id', table.id);
     await fetchTables();
     handleTableSelect({ ...table, status: 'ocupada', openedAt: now });
   };
 
-  // Merged tables label for the selected table
   const mergeGroupLabel = selectedTable?.mergeGroupId
     ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.name).join(' + ')
     : null;
 
-  // ─── Move table in layout ─────────────────────────────────────────────────
-  const handleMoveTable = useCallback(
-    async (tableNumber: number, newX: number, newY: number) => {
-      const updated = layoutTables.map((lt) =>
-        lt.number === tableNumber ? { ...lt, x: newX, y: newY } : lt
-      );
-      setLayoutTables(updated);
+  // ─── Move / Delete table in layout ───────────────────────────────────────
 
-      // Persist to restaurant_layout
-      const payload = { tables_layout: updated, updated_at: new Date().toISOString() };
-      if (layoutId) {
-        await supabase.from('restaurant_layout').update(payload).eq('id', layoutId);
-      }
-    },
-    [layoutTables, layoutId, supabase]
-  );
+  const handleMoveTable = useCallback(async (tableNumber: number, newX: number, newY: number) => {
+    const updated = layoutTables.map((lt) => lt.number === tableNumber ? { ...lt, x: newX, y: newY } : lt);
+    setLayoutTables(updated);
+    if (layoutId) {
+      await supabase.from('restaurant_layout').update({ tables_layout: updated, updated_at: new Date().toISOString() }).eq('id', layoutId);
+    }
+  }, [layoutTables, layoutId, supabase]);
 
-  // ─── Delete table from layout ─────────────────────────────────────────────
-  const handleDeleteTable = useCallback(
-    async (tableNumber: number) => {
-      const updated = layoutTables.filter((lt) => lt.number !== tableNumber);
-      setLayoutTables(updated);
-
-      // Remove from restaurant_tables
-      const tableToDelete = tables.find((t) => t.number === tableNumber);
-      if (tableToDelete) {
-        await supabase.from('restaurant_tables').delete().eq('id', tableToDelete.id);
-        setTables((prev) => prev.filter((t) => t.number !== tableNumber));
-      }
-
-      // Persist updated layout
-      const payload = { tables_layout: updated, updated_at: new Date().toISOString() };
-      if (layoutId) {
-        await supabase.from('restaurant_layout').update(payload).eq('id', layoutId);
-      }
-
-      // Update table_count in system_config
-      await supabase.from('system_config').upsert(
-        { config_key: 'table_count', config_value: String(updated.length) },
-        { onConflict: 'config_key' }
-      );
-    },
-    [layoutTables, layoutId, tables, supabase]
-  );
+  const handleDeleteTable = useCallback(async (tableNumber: number) => {
+    const updated = layoutTables.filter((lt) => lt.number !== tableNumber);
+    setLayoutTables(updated);
+    const tableToDelete = tables.find((t) => t.number === tableNumber);
+    if (tableToDelete) {
+      await supabase.from('restaurant_tables').delete().eq('id', tableToDelete.id);
+      setTables((prev) => prev.filter((t) => t.number !== tableNumber));
+    }
+    if (layoutId) {
+      await supabase.from('restaurant_layout').update({ tables_layout: updated, updated_at: new Date().toISOString() }).eq('id', layoutId);
+    }
+    await supabase.from('system_config').upsert(
+      { config_key: 'table_count', config_value: String(updated.length) }, { onConflict: 'config_key' }
+    );
+  }, [layoutTables, layoutId, tables, supabase]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -591,7 +615,7 @@ export default function POSClient() {
         <Topbar title="Punto de Venta" subtitle="Gestión de mesas y órdenes" />
         <div className="flex-1 flex overflow-hidden">
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Panel tab bar */}
+            {/* Tab bar */}
             <div className="flex items-center gap-1 px-4 pt-3 pb-0 bg-white border-b flex-shrink-0" style={{ borderColor: '#e5e7eb' }}>
               <button onClick={() => setView('tables')} className="px-4 py-2.5 text-sm font-semibold border-b-2 transition-all duration-150" style={{ borderColor: view === 'tables' ? '#f59e0b' : 'transparent', color: view === 'tables' ? '#d97706' : '#6b7280' }}>
                 Mapa de Mesas
@@ -608,25 +632,16 @@ export default function POSClient() {
               {selectedTable && (
                 <div className="ml-auto flex items-center gap-2 pb-1">
                   {selectedTable.mergeGroupId && (
-                    <button
-                      onClick={() => handleUnmerge(selectedTable)}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                      style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}
-                    >
+                    <button onClick={() => handleUnmerge(selectedTable)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors" style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
                       <X size={12} />Separar mesas
                     </button>
                   )}
-                  <button
-                    onClick={handleCancelTable}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                    style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}
-                    title="Cancelar y liberar mesa sin cobrar"
-                  >
+                  <button onClick={handleCancelTable} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors" style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }} title="Cancelar y liberar mesa sin cobrar">
                     <X size={12} />Cancelar mesa
                   </button>
                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
                     <div className="w-2 h-2 rounded-full bg-amber-400" />
-                    <span className="font-semibold text-amber-800">{mergeGroupLabel ?? selectedTable.name} — {orderItems.length} items</span>
+                    <span className="font-semibold text-amber-800">{mergeGroupLabel ?? selectedTable.name} — {itemCount} items</span>
                   </div>
                   <button onClick={() => { setSelectedTable(null); setOrderItems([]); setView('tables'); }} className="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1">
                     Cambiar mesa
@@ -639,28 +654,15 @@ export default function POSClient() {
                   {mergeMode ? (
                     <>
                       <span className="text-xs text-gray-500">{mergeSelection.length} mesa(s) seleccionada(s)</span>
-                      <button
-                        onClick={handleConfirmMerge}
-                        disabled={mergeSelection.length < 2}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-40"
-                        style={{ backgroundColor: '#1B3A6B', color: 'white' }}
-                      >
+                      <button onClick={handleConfirmMerge} disabled={mergeSelection.length < 2} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-40" style={{ backgroundColor: '#1B3A6B', color: 'white' }}>
                         <Merge size={12} />Confirmar unión
                       </button>
-                      <button
-                        onClick={() => { setMergeMode(false); setMergeSelection([]); }}
-                        className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                        style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}
-                      >
+                      <button onClick={() => { setMergeMode(false); setMergeSelection([]); }} className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors" style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}>
                         Cancelar
                       </button>
                     </>
                   ) : (
-                    <button
-                      onClick={() => setMergeMode(true)}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
-                      style={{ backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb' }}
-                    >
+                    <button onClick={() => setMergeMode(true)} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors" style={{ backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #e5e7eb' }}>
                       <Merge size={12} />Unir mesas
                     </button>
                   )}
@@ -668,7 +670,6 @@ export default function POSClient() {
               )}
             </div>
 
-            {/* Merge mode banner */}
             {mergeMode && (
               <div className="flex items-center gap-3 px-4 py-2.5 text-sm flex-shrink-0" style={{ backgroundColor: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
                 <Merge size={15} style={{ color: '#d97706' }} />
@@ -706,7 +707,6 @@ export default function POSClient() {
             </div>
           </div>
 
-          {/* Order Panel */}
           <OrderPanel
             selectedTable={selectedTable}
             mergeGroupLabel={mergeGroupLabel}
