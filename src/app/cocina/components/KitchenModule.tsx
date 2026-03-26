@@ -333,7 +333,7 @@ export default function KitchenModule() {
 
     const { error } = await supabase.from('orders').update({
       status: 'cancelada',
-      kitchen_status: null,
+      kitchen_status: 'en_edicion',
       updated_at: new Date().toISOString(),
     }).eq('id', orderId);
 
