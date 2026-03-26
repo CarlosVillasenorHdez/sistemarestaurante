@@ -47,6 +47,17 @@ export default function MeseroMobileView() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'tables' | 'menu'>('tables');
+  const [branchName, setBranchName] = useState('Sucursal Principal');
+
+  // Load branch name from system_config on mount
+  useEffect(() => {
+    supabase
+      .from('system_config')
+      .select('config_value')
+      .eq('config_key', 'branch_name')
+      .single()
+      .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
+  }, [supabase]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -69,6 +80,40 @@ export default function MeseroMobileView() {
   }, [supabase]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Realtime: refresh tables when status changes from another terminal
+  useEffect(() => {
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      channel = supabase
+        .channel(`mesero-tables-${Date.now()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+          loadData();
+        })
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (channel) { supabase.removeChannel(channel); channel = null; }
+            const delay = Math.min(3000 * Math.pow(2, retryCount), 30000);
+            retryCount += 1;
+            if (!destroyed) retryTimeout = setTimeout(connect, delay);
+          } else if (status === 'SUBSCRIBED') {
+            retryCount = 0;
+          }
+        });
+    };
+
+    connect();
+    return () => {
+      destroyed = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [supabase, loadData]);
 
   const selectTable = (table: Table) => {
     setSelectedTable(table);
@@ -122,7 +167,7 @@ export default function MeseroMobileView() {
         status: 'abierta',
         kitchen_status: 'pendiente',
         opened_at: new Date().toISOString(),
-        branch: 'Sucursal Centro',
+        branch: branchName,
       });
 
       await supabase.from('order_items').insert(
