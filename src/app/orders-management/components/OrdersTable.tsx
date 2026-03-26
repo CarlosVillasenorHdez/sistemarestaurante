@@ -97,14 +97,23 @@ export default function OrdersTable() {
 
   const supabase = createClient();
 
+  const ORDERS_LIMIT = 200;  // Hard cap — prevents loading months of history at once
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     const { data: ordersData, error } = await supabase
       .from('orders')
       .select('*, order_items(*)')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(ORDERS_LIMIT);
 
-    if (!error && ordersData) {
+    if (error) {
+      toast.error('Error al cargar órdenes: ' + error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (ordersData) {
       setOrders(ordersData.map((o) => ({
         id: o.id,
         mesa: o.mesa,
@@ -130,7 +139,7 @@ export default function OrdersTable() {
       })));
     }
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
