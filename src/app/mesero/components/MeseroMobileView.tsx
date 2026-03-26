@@ -22,7 +22,7 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 export default function MeseroMobileView() {
   const supabase = createClient();
   const { appUser } = useAuth();
-  const { ensureOpenOrder, syncItems, loadOrderItems } = useOrderFlow();
+  const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen } = useOrderFlow();
 
   const [tables, setTables] = useState<Table[]>([]);
   const [dishes, setDishes] = useState<DbDish[]>([]);
@@ -215,6 +215,9 @@ export default function MeseroMobileView() {
         partial_total: total,
         updated_at: new Date().toISOString(),
       }).eq('id', selectedTable.id);
+
+      // Mark kitchen_status as 'pendiente' so the KDS picks it up
+      await sendToKitchen(orderId);
 
       toast.success(`Orden enviada a cocina — ${selectedTable.name}`);
       setOrderItems([]);
