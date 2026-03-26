@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Edit2, Trash2, CheckCircle, Clock, AlertTriangle, X, Save, Zap, Home, Shield, Megaphone, Wrench, DollarSign, TrendingDown, RefreshCw, Calendar, Tag } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -476,44 +477,59 @@ export default function GastosManagement() {
   // ── CRUD Gastos ────────────────────────────────────────────────────────────
 
   async function handleSaveGasto(data: Omit<GastoRecurrente, 'id' | 'created_at'>) {
-    if (editingGasto) {
-      await supabase.from('gastos_recurrentes').update(data).eq('id', editingGasto.id);
-    } else {
-      await supabase.from('gastos_recurrentes').insert([data]);
+    try {
+      if (editingGasto) {
+        const { error } = await supabase.from('gastos_recurrentes').update(data).eq('id', editingGasto.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('gastos_recurrentes').insert([data]);
+        if (error) throw error;
+      }
+      setShowGastoModal(false);
+      setEditingGasto(null);
+      fetchGastos();
+    } catch (err: any) {
+      toast.error('Error al guardar gasto: ' + (err?.message ?? 'Intenta de nuevo'));
     }
-    setShowGastoModal(false);
-    setEditingGasto(null);
-    fetchGastos();
   }
 
   async function handleDeleteGasto(id: string) {
     if (!confirm('¿Eliminar este gasto?')) return;
-    await supabase.from('gastos_recurrentes').delete().eq('id', id);
+    const { error } = await supabase.from('gastos_recurrentes').delete().eq('id', id);
+    if (error) { toast.error('Error al eliminar gasto: ' + error.message); return; }
     fetchGastos();
   }
 
   async function handleToggleEstado(gasto: GastoRecurrente) {
     const nuevoEstado: GastoEstado = gasto.estado === 'pendiente' ? 'pagado' : 'pendiente';
-    await supabase.from('gastos_recurrentes').update({ estado: nuevoEstado }).eq('id', gasto.id);
+    const { error } = await supabase.from('gastos_recurrentes').update({ estado: nuevoEstado }).eq('id', gasto.id);
+    if (error) { toast.error('Error al actualizar estado: ' + error.message); return; }
     fetchGastos();
   }
 
   // ── CRUD Depreciaciones ────────────────────────────────────────────────────
 
   async function handleSaveDep(data: Omit<Depreciacion, 'id'>) {
-    if (editingDep) {
-      await supabase.from('depreciaciones').update(data).eq('id', editingDep.id);
-    } else {
-      await supabase.from('depreciaciones').insert([data]);
+    try {
+      if (editingDep) {
+        const { error } = await supabase.from('depreciaciones').update(data).eq('id', editingDep.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('depreciaciones').insert([data]);
+        if (error) throw error;
+      }
+      setShowDepModal(false);
+      setEditingDep(null);
+      fetchDepreciaciones();
+    } catch (err: any) {
+      toast.error('Error al guardar depreciación: ' + (err?.message ?? 'Intenta de nuevo'));
     }
-    setShowDepModal(false);
-    setEditingDep(null);
-    fetchDepreciaciones();
   }
 
   async function handleDeleteDep(id: string) {
     if (!confirm('¿Eliminar este activo?')) return;
-    await supabase.from('depreciaciones').delete().eq('id', id);
+    const { error } = await supabase.from('depreciaciones').delete().eq('id', id);
+    if (error) { toast.error('Error al eliminar activo: ' + error.message); return; }
     fetchDepreciaciones();
   }
 
