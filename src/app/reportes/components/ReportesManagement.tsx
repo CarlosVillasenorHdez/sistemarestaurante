@@ -292,13 +292,14 @@ export default function ReportesManagement() {
     try {
       const { start, end } = getDateBounds();
 
-      // Fetch closed orders in range
+      // Fetch closed orders in range (capped at 2000 to protect browser)
       const { data: orders, error: ordersError } = await supabase
         .from('orders')
         .select('id, total, mesero, created_at')
         .eq('status', 'cerrada')
         .gte('created_at', start)
-        .lte('created_at', end);
+        .lte('created_at', end)
+        .limit(2000);
 
       if (ordersError) throw ordersError;
 
@@ -316,7 +317,8 @@ export default function ReportesManagement() {
         const { data: items, error: itemsError } = await supabase
           .from('order_items')
           .select('name, qty, order_id')
-          .in('order_id', orderIds);
+          .in('order_id', orderIds)
+          .limit(5000);
 
         if (!itemsError && items) {
           // Aggregate by dish name
@@ -415,8 +417,8 @@ export default function ReportesManagement() {
       const endDate = dateRange === 'personalizado' ? customEnd : now.toISOString().split('T')[0];
 
       const [{ data: itemsData }, { data: ordersData }] = await Promise.all([
-        supabase.from('order_items').select('name, qty, price, created_at').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59'),
-        supabase.from('orders').select('total, mesero, closed_at, created_at').eq('status', 'cerrada').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59'),
+        supabase.from('order_items').select('name, qty, price, created_at').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59').limit(5000),
+        supabase.from('orders').select('total, mesero, closed_at, created_at').eq('status', 'cerrada').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59').limit(2000),
       ]);
 
       // Top y worst dishes

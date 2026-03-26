@@ -198,28 +198,37 @@ function RecipeModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
     const already = recipe.find((r) => r.ingredientId === selectedIngId);
     if (already) return;
     setSaving(true);
-    await supabase.from('dish_recipes').insert({
-      dish_id: dish.id,
-      ingredient_id: selectedIngId,
-      quantity: addQty,
-      unit: selectedIng?.unit ?? '',
-      notes: addNotes,
-    });
-    setSelectedIngId('');
-    setAddQty(0);
-    setAddNotes('');
-    await fetchRecipe();
-    setSaving(false);
+    try {
+      const { error } = await supabase.from('dish_recipes').insert({
+        dish_id: dish.id,
+        ingredient_id: selectedIngId,
+        quantity: addQty,
+        unit: selectedIng?.unit ?? '',
+        notes: addNotes,
+      });
+      if (error) throw error;
+      setSelectedIngId('');
+      setAddQty(0);
+      setAddNotes('');
+      await fetchRecipe();
+    } catch (err: any) {
+      // toast not available inside RecipeModal scope — use alert as fallback
+      alert('Error al agregar ingrediente: ' + (err?.message ?? 'Intenta de nuevo'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleUpdateQty = async (recipeId: string, qty: number) => {
     if (qty <= 0) return;
-    await supabase.from('dish_recipes').update({ quantity: qty, updated_at: new Date().toISOString() }).eq('id', recipeId);
+    const { error } = await supabase.from('dish_recipes').update({ quantity: qty, updated_at: new Date().toISOString() }).eq('id', recipeId);
+    if (error) { alert('Error al actualizar cantidad: ' + error.message); return; }
     setRecipe((prev) => prev.map((r) => r.id === recipeId ? { ...r, quantity: qty } : r));
   };
 
   const handleRemove = async (recipeId: string) => {
-    await supabase.from('dish_recipes').delete().eq('id', recipeId);
+    const { error } = await supabase.from('dish_recipes').delete().eq('id', recipeId);
+    if (error) { alert('Error al eliminar ingrediente: ' + error.message); return; }
     setRecipe((prev) => prev.filter((r) => r.id !== recipeId));
   };
 
@@ -749,7 +758,12 @@ export default function MenuManagement() {
   const fetchDishes = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase.from('dishes').select('*').order('category').order('name');
-    if (!error && data) {
+    if (error) {
+      alert('Error al cargar el menú: ' + error.message);
+      setLoading(false);
+      return;
+    }
+    if (data) {
       const mapped = data.map((d) => ({
         id: d.id, name: d.name, description: d.description, price: Number(d.price),
         category: d.category as Exclude<Category, 'Todas'>, available: d.available,
@@ -765,7 +779,7 @@ export default function MenuManagement() {
       }
     }
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { fetchDishes(); }, [fetchDishes]);
 
@@ -787,29 +801,42 @@ export default function MenuManagement() {
   const availableCount = dishes.filter((d) => d.available).length;
   const dishesWithRecipe = Object.keys(recipeCounts).length;
 
+  const [saving, setSaving] = useState(false);
+
   const handleSave = async (data: Omit<Dish, 'id'>) => {
-    if (editingDish) {
-      await supabase.from('dishes').update({
-        name: data.name, description: data.description, price: data.price,
-        category: data.category, available: data.available, image: data.image,
-        image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
-        updated_at: new Date().toISOString(),
-      }).eq('id', editingDish.id);
-    } else {
-      await supabase.from('dishes').insert({
-        name: data.name, description: data.description, price: data.price,
-        category: data.category, available: data.available, image: data.image,
-        image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
-      });
+    setSaving(true);
+    try {
+      if (editingDish) {
+        const { error } = await supabase.from('dishes').update({
+          name: data.name, description: data.description, price: data.price,
+          category: data.category, available: data.available, image: data.image,
+          image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
+          updated_at: new Date().toISOString(),
+        }).eq('id', editingDish.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('dishes').insert({
+          name: data.name, description: data.description, price: data.price,
+          category: data.category, available: data.available, image: data.image,
+          image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
+        });
+        if (error) throw error;
+      }
+      setFormOpen(false);
+      setEditingDish(null);
+      await fetchDishes();
+    } catch (err: any) {
+      const action = editingDish ? 'actualizar' : 'agregar';
+      alert(`Error al ${action} platillo: ${err?.message ?? 'Intenta de nuevo'}`);
+    } finally {
+      setSaving(false);
     }
-    setFormOpen(false);
-    setEditingDish(null);
-    await fetchDishes();
   };
 
   const handleDelete = async () => {
     if (!deletingDish) return;
-    await supabase.from('dishes').delete().eq('id', deletingDish.id);
+    const { error } = await supabase.from('dishes').delete().eq('id', deletingDish.id);
+    if (error) { alert('Error al eliminar platillo: ' + error.message); return; }
     setDeletingDish(null);
     await fetchDishes();
   };
@@ -817,8 +844,14 @@ export default function MenuManagement() {
   const handleToggle = async (id: string) => {
     const dish = dishes.find((d) => d.id === id);
     if (!dish) return;
-    await supabase.from('dishes').update({ available: !dish.available, updated_at: new Date().toISOString() }).eq('id', id);
-    await fetchDishes();
+    // Optimistic update
+    setDishes((prev) => prev.map((d) => d.id === id ? { ...d, available: !d.available } : d));
+    const { error } = await supabase.from('dishes').update({ available: !dish.available, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) {
+      // Revert on failure
+      setDishes((prev) => prev.map((d) => d.id === id ? { ...d, available: dish.available } : d));
+      alert('Error al cambiar disponibilidad: ' + error.message);
+    }
   };
 
   const openAdd = () => { setEditingDish(null); setFormOpen(true); };

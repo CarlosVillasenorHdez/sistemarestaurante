@@ -163,12 +163,14 @@ export default function RHManagement() {
   // ─── CRUD helpers ────────────────────────────────────────────────────────────
 
   async function updateEstado(table: string, id: string, estado: Estado) {
-    await supabase.from(table).update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+    const { error } = await supabase.from(table).update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) { setError('Error al actualizar estado: ' + error.message); return; }
     loadData();
   }
 
   async function deleteRecord(table: string, id: string) {
-    await supabase.from(table).delete().eq('id', id);
+    const { error } = await supabase.from(table).delete().eq('id', id);
+    if (error) { setError('Error al eliminar registro: ' + error.message); return; }
     loadData();
   }
 

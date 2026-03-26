@@ -69,6 +69,7 @@ export default function AlarmasManagement() {
   const fetchAlertas = useCallback(async () => {
     setLoading(true);
     const nuevas: Alerta[] = [];
+    try {
 
     // ── 1. Inventario: stock bajo mínimo ──────────────────────────────────────
     const { data: ingredientes } = await supabase
@@ -154,7 +155,11 @@ export default function AlarmasManagement() {
     nuevas.sort((a, b) => orden[a.severidad] - orden[b.severidad]);
 
     setAlertas(nuevas);
-    setLoading(false);
+    } catch (err: any) {
+      console.error('[Alarmas] Error al cargar alertas:', err?.message);
+    } finally {
+      setLoading(false);
+    }
   }, [supabase]);
 
   useEffect(() => {
