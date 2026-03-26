@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import { createClient } from '@/lib/supabase/client';
-import { ChefHat, Clock, CheckCircle, AlertCircle, RefreshCw, Bell, Flame, Coffee, UtensilsCrossed, Play, Check } from 'lucide-react';
+import { ChefHat, Clock, CheckCircle, AlertCircle, RefreshCw, Bell, Flame, Coffee, UtensilsCrossed, Play, Check, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -64,10 +64,11 @@ interface OrderCardProps {
   order: KitchenOrder;
   onAdvance: (id: string, next: KitchenStatus) => void;
   onDeliver: (id: string) => void;
+  onCancel: (id: string, mesa: string) => void;
   tick: number;
 }
 
-function OrderCard({ order, onAdvance, onDeliver, tick }: OrderCardProps) {
+function OrderCard({ order, onAdvance, onDeliver, onCancel, tick }: OrderCardProps) {
   const elapsed = calcElapsed(order.createdAt);
   const cfg = STATUS_CONFIG[order.kitchenStatus];
   const isUrgent = elapsed >= 20 && order.kitchenStatus !== 'lista';
@@ -163,6 +164,14 @@ function OrderCard({ order, onAdvance, onDeliver, tick }: OrderCardProps) {
             Entregada
           </button>
         )}
+        <button
+          onClick={() => onCancel(order.id, order.mesa)}
+          className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 transition-all hover:brightness-110"
+          style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+          title="Cancelar orden"
+        >
+          <X size={13} />
+        </button>
       </div>
     </div>
   );
@@ -316,6 +325,26 @@ export default function KitchenModule() {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
+  const handleCancelFromKitchen = async (orderId: string, mesa: string) => {
+    const confirmed = window.confirm(
+      `¿Cancelar la orden de ${mesa}?\n\nLa orden se eliminará del tablero y se marcará como cancelada.`
+    );
+    if (!confirmed) return;
+
+    const { error } = await supabase.from('orders').update({
+      status: 'cancelada',
+      kitchen_status: null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', orderId);
+
+    if (error) {
+      toast.error('Error al cancelar orden: ' + error.message);
+      return;
+    }
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    toast.success(`Orden de ${mesa} cancelada`);
+  };
+
   const columnOrders = (col: KitchenStatus) =>
     orders.filter((o) => o.kitchenStatus === col);
 
@@ -428,6 +457,7 @@ export default function KitchenModule() {
                             order={order}
                             onAdvance={handleAdvance}
                             onDeliver={handleDeliver}
+                            onCancel={handleCancelFromKitchen}
                             tick={tick}
                           />
                         ))

@@ -87,6 +87,8 @@ export default function OrdersTable() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'todas'>('todas');
   const [meseroFilter, setMeseroFilter] = useState('todos');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [sortField, setSortField] = useState<SortField>('id');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
@@ -153,7 +155,10 @@ export default function OrdersTable() {
       const matchStatus = statusFilter === 'todas' || o.status === statusFilter;
       const matchMesero = meseroFilter === 'todos' || o.mesero === meseroFilter;
       const matchSearch = search === '' || o.id.toLowerCase().includes(search.toLowerCase()) || o.mesa.toLowerCase().includes(search.toLowerCase()) || o.mesero.toLowerCase().includes(search.toLowerCase());
-      return matchStatus && matchMesero && matchSearch;
+      const orderDate = o.openedAt ? o.openedAt.slice(0, 10) : '';
+      const matchFrom = !dateFrom || orderDate >= dateFrom;
+      const matchTo = !dateTo || orderDate <= dateTo;
+      return matchStatus && matchMesero && matchSearch && matchFrom && matchTo;
     });
 
     result = [...result].sort((a, b) => {
@@ -167,7 +172,7 @@ export default function OrdersTable() {
       return 0;
     });
     return result;
-  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir]);
+  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir, dateFrom, dateTo]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -250,6 +255,22 @@ export default function OrdersTable() {
           <option value="todos">Todos los meseros</option>
           {meseros.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="text-xs text-gray-500">Desde</span>
+          <input type="date" value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+            className="input-field py-2 text-xs w-36"
+          />
+          <span className="text-xs text-gray-500">Hasta</span>
+          <input type="date" value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+            className="input-field py-2 text-xs w-36"
+          />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }}
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors px-1" title="Limpiar fechas">✕</button>
+          )}
+        </div>
         <div className="flex items-center gap-2 ml-auto">
           <button onClick={handleRefresh} className="btn-secondary py-2 px-3 flex items-center gap-1.5">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />

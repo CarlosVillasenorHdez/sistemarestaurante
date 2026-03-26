@@ -67,10 +67,11 @@ export default function SalesChart() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Today's closed orders — use created_at for range, group by hour
-      const todayStart = new Date();
+      // Today's closed orders — use America/Mexico_City for day boundaries
+      const nowMX = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+      const todayStart = new Date(nowMX);
       todayStart.setHours(0, 0, 0, 0);
-      const todayEnd = new Date();
+      const todayEnd = new Date(nowMX);
       todayEnd.setHours(23, 59, 59, 999);
 
       const { data: todayOrders, error: todayError } = await supabase

@@ -309,7 +309,11 @@ export function useOrderFlow() {
     try {
       if (orderId) {
         const { error } = await supabase.from('orders')
-          .update({ status: 'cancelada', updated_at: new Date().toISOString() })
+          .update({
+            status: 'cancelada',
+            kitchen_status: null,   // remove from KDS immediately
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', orderId);
         if (error) throw error;
       }
