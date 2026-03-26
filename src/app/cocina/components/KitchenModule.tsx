@@ -225,20 +225,48 @@ export default function KitchenModule() {
     return () => clearInterval(interval);
   }, [fetchOrders]);
 
-  // Real-time subscription with connection status tracking
+  // Real-time subscription with auto-reconnect on failure
   useEffect(() => {
-    setRealtimeStatus('reconectando');
-    const channel = supabase
-      .channel('kitchen-orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        fetchOrders();
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') setRealtimeStatus('conectado');
-        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setRealtimeStatus('desconectado');
-        else setRealtimeStatus('reconectando');
-      });
-    return () => { supabase.removeChannel(channel); };
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      setRealtimeStatus('reconectando');
+
+      channel = supabase
+        .channel(`kitchen-orders-${Date.now()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+          fetchOrders();
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            setRealtimeStatus('conectado');
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            setRealtimeStatus('desconectado');
+            if (channel) { supabase.removeChannel(channel); channel = null; }
+            // Exponential backoff: 3s, 6s, 12s, máx 30s
+            const delay = Math.min(3000 * Math.pow(2, retryCount), 30000);
+            retryCount += 1;
+            if (!destroyed) {
+              retryTimeout = setTimeout(connect, delay);
+            }
+          } else {
+            setRealtimeStatus('reconectando');
+          }
+        });
+    };
+
+    connect();
+
+    return () => {
+      destroyed = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (channel) supabase.removeChannel(channel);
+    };
   }, [supabase, fetchOrders]);
 
   const handleAdvance = async (orderId: string, next: KitchenStatus) => {

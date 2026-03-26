@@ -29,7 +29,7 @@ const navGroups: { group: string; items: NavItem[] }[] = [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', pageKey: 'dashboard' },
       { label: 'Punto de Venta', icon: ShoppingCart, href: '/pos-punto-de-venta', pageKey: 'pos' },
       { label: 'Mesero Móvil', icon: Smartphone, href: '/mesero', pageKey: 'mesero' },
-      { label: 'Órdenes', icon: ClipboardList, href: '/orders-management', badge: 3, pageKey: 'orders' },
+      { label: 'Órdenes', icon: ClipboardList, href: '/orders-management', pageKey: 'orders' },
       { label: 'Cocina', icon: ChefHat, href: '/cocina', pageKey: 'cocina' },
       { label: 'Delivery', icon: Truck, href: '/delivery', pageKey: 'delivery' },
     ],
@@ -109,6 +109,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   // Permissions from DB
   const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
+  const [openOrdersCount, setOpenOrdersCount] = useState<number>(0);
 
   // Dynamic sidebar colors from brandConfig
   const sidebarBg = brandConfig.theme === 'light' ? '#f8fafc' : (brandConfig.primaryColor || '#1B3A6B');
@@ -152,6 +153,20 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       .then(({ data }) => {
         if (data?.config_value) setBranchName(data.config_value);
       });
+  }, [supabase]);
+
+  // Load real open orders count and refresh every 60s
+  useEffect(() => {
+    const fetchOpenOrders = async () => {
+      const { count } = await supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'abierta');
+      setOpenOrdersCount(count ?? 0);
+    };
+    fetchOpenOrders();
+    const interval = setInterval(fetchOpenOrders, 60000);
+    return () => clearInterval(interval);
   }, [supabase]);
 
   function canAccess(pageKey: string): boolean {
@@ -234,6 +249,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {group.items.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              const badge = item.pageKey === 'orders'
+                ? (openOrdersCount > 0 ? openOrdersCount : undefined)
+                : item.badge;
               return (
                 <Link key={item.href} href={item.href}>
                   <div
@@ -244,9 +262,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                     {!collapsed && (
                       <>
                         <span className="flex-1 truncate">{item.label}</span>
-                        {item.badge && (
+                        {badge !== undefined && (
                           <span className="text-xs rounded-full px-1.5 py-0.5 min-w-[20px] text-center" style={{ backgroundColor: '#f59e0b', color: '#1B3A6B', fontWeight: 700, fontSize: '10px' }}>
-                            {item.badge}
+                            {badge}
                           </span>
                         )}
                       </>

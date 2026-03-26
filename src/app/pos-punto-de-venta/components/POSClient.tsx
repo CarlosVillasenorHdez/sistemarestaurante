@@ -225,20 +225,52 @@ export default function POSClient() {
 
   // ─── Table select ─────────────────────────────────────────────────────────
 
-  const handleTableSelect = (table: Table) => {
+  const handleTableSelect = async (table: Table) => {
     if (mergeMode) {
-      // In merge mode, toggle selection
       setMergeSelection((prev) =>
         prev.includes(table.id) ? prev.filter((id) => id !== table.id) : [...prev, table.id]
       );
       return;
     }
 
-    // If table belongs to a merge group, use the primary table's order
     const primary = getGroupPrimary(table);
     setSelectedTable(primary);
-    setOrderItems([]);
     setDiscount({ type: 'pct', value: 0 });
+
+    // Load existing order items if the table already has an open order
+    if (primary.currentOrderId) {
+      const { data: existingItems } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', primary.currentOrderId);
+
+      if (existingItems && existingItems.length > 0) {
+        const dishIds = [...new Set(existingItems.map((i: any) => i.dish_id).filter(Boolean))];
+        let dishMap: Record<string, MenuItem> = {};
+        if (dishIds.length > 0) {
+          const { data: dishes } = await supabase.from('dishes').select('*').in('id', dishIds);
+          (dishes || []).forEach((d: any) => {
+            dishMap[d.id] = {
+              id: d.id, name: d.name, category: d.category,
+              price: Number(d.price), description: d.description,
+              available: d.available, emoji: d.emoji, popular: d.popular,
+            };
+          });
+        }
+        const restored: OrderItem[] = existingItems.map((i: any) => ({
+          menuItem: dishMap[i.dish_id] ?? {
+            id: i.dish_id ?? i.id, name: i.name, category: '',
+            price: Number(i.price), description: '', available: true, emoji: i.emoji ?? '\u{1F37D}\uFE0F',
+          },
+          quantity: i.qty,
+        }));
+        setOrderItems(restored);
+      } else {
+        setOrderItems([]);
+      }
+    } else {
+      setOrderItems([]);
+    }
     setView('menu');
   };
 
@@ -290,6 +322,10 @@ export default function POSClient() {
   // ─── Cancel / Free table ──────────────────────────────────────────────────
   const handleCancelTable = async () => {
     if (!selectedTable) return;
+    const confirmed = window.confirm(
+      `\u00bfSeguro que deseas cancelar y liberar ${selectedTable.name}?\n\nEsta acción eliminará todos los artículos de la orden sin cobrar.`
+    );
+    if (!confirmed) return;
     const groupIds = selectedTable.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
@@ -363,40 +399,60 @@ export default function POSClient() {
           }))
         );
 
-        // ─── Deduct inventory based on dish recipes ───────────────────────
-        // For each sold item, fetch its recipe and deduct ingredient quantities
-        for (const orderItem of orderItems) {
-          const { data: recipeItems } = await supabase
-            .from('dish_recipes')
-            .select('ingredient_id, quantity, ingredients(stock, name, unit)')
-            .eq('dish_id', orderItem.menuItem.id);
+        // ─── Deduct inventory (parallel fetch + allSettled for resilience) ────
+        type StockUpdate = {
+          ingredientId: string; deductQty: number;
+          currentStock: number; newStock: number;
+          dishName: string; dishQty: number;
+        };
+        const stockUpdates: StockUpdate[] = [];
 
-          if (recipeItems && recipeItems.length > 0) {
-            for (const recipeItem of recipeItems) {
-              const ingredient = (recipeItem as any).ingredients;
-              if (!ingredient) continue;
-              const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
-              const currentStock = Number(ingredient.stock);
-              const newStock = Math.max(0, currentStock - deductQty);
+        const recipeResults = await Promise.all(
+          orderItems.map((orderItem) =>
+            supabase
+              .from('dish_recipes')
+              .select('ingredient_id, quantity, ingredients(stock, name, unit)')
+              .eq('dish_id', orderItem.menuItem.id)
+              .then((res) => ({ orderItem, data: res.data }))
+          )
+        );
 
-              // Update ingredient stock
-              await supabase
-                .from('ingredients')
-                .update({ stock: newStock, updated_at: new Date().toISOString() })
-                .eq('id', recipeItem.ingredient_id);
-
-              // Log stock movement
-              await supabase.from('stock_movements').insert({
-                ingredient_id: recipeItem.ingredient_id,
-                movement_type: 'salida',
-                quantity: deductQty,
-                previous_stock: currentStock,
-                new_stock: newStock,
-                reason: `Venta: ${orderItem.menuItem.name} x${orderItem.quantity} — Orden ${orderId}`,
-                created_by: 'Sistema POS',
-              });
-            }
+        for (const { orderItem, data: recipeItems } of recipeResults) {
+          if (!recipeItems) continue;
+          for (const recipeItem of recipeItems) {
+            const ingredient = (recipeItem as any).ingredients;
+            if (!ingredient) continue;
+            const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
+            const currentStock = Number(ingredient.stock);
+            stockUpdates.push({
+              ingredientId: recipeItem.ingredient_id,
+              deductQty, currentStock,
+              newStock: Math.max(0, currentStock - deductQty),
+              dishName: orderItem.menuItem.name,
+              dishQty: orderItem.quantity,
+            });
           }
+        }
+
+        if (stockUpdates.length > 0) {
+          await Promise.allSettled([
+            ...stockUpdates.map((u) =>
+              supabase.from('ingredients')
+                .update({ stock: u.newStock, updated_at: new Date().toISOString() })
+                .eq('id', u.ingredientId)
+            ),
+            ...stockUpdates.map((u) =>
+              supabase.from('stock_movements').insert({
+                ingredient_id: u.ingredientId,
+                movement_type: 'salida',
+                quantity: u.deductQty,
+                previous_stock: u.currentStock,
+                new_stock: u.newStock,
+                reason: `Venta: ${u.dishName} x${u.dishQty} — Orden ${orderId}`,
+                created_by: 'Sistema POS',
+              })
+            ),
+          ]);
         }
         // ─────────────────────────────────────────────────────────────────
       }

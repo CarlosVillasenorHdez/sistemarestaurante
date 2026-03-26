@@ -123,8 +123,16 @@ export default function DashboardKPIs() {
     async function load() {
       setLoading(true);
       try {
-        const hoy = new Date().toISOString().split('T')[0];
-        const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        // Use Mexico City timezone (UTC-6 / UTC-5 DST) for day boundaries
+        const nowMX = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+        const startOfTodayMX = new Date(nowMX);
+        startOfTodayMX.setHours(0, 0, 0, 0);
+        const startOfYesterdayMX = new Date(startOfTodayMX);
+        startOfYesterdayMX.setDate(startOfYesterdayMX.getDate() - 1);
+
+        // Convert back to UTC ISO strings for Supabase queries
+        const todayUTC = startOfTodayMX.toISOString();
+        const yesterdayUTC = startOfYesterdayMX.toISOString();
 
         const [
           { data: cerradasHoy },
@@ -134,11 +142,11 @@ export default function DashboardKPIs() {
           { data: topItems },
           { data: ingAlerta },
         ] = await Promise.all([
-          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', hoy),
-          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', ayer).lt('created_at', hoy),
+          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', todayUTC),
+          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', yesterdayUTC).lt('created_at', todayUTC),
           supabase.from('orders').select('id').eq('status', 'abierta'),
           supabase.from('restaurant_tables').select('status'),
-          supabase.from('order_items').select('name, qty').gte('created_at', hoy),
+          supabase.from('order_items').select('name, qty').gte('created_at', todayUTC),
           supabase.from('ingredients').select('name, stock, min_stock'),
         ]);
 

@@ -107,8 +107,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, [fetchAppUser]);
 
-  // Load brand config from system_config
+  const BRAND_CACHE_KEY = 'sistemarest_brand_config';
+
+  // Load brand config from system_config (with sessionStorage cache)
   useEffect(() => {
+    const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
+    if (cached) {
+      try {
+        setBrandConfig(JSON.parse(cached));
+        return;
+      } catch {
+        sessionStorage.removeItem(BRAND_CACHE_KEY);
+      }
+    }
+
     supabase
       .from('system_config')
       .select('config_key, config_value')
@@ -117,13 +129,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (!data) return;
         const map: Record<string, string> = {};
         data.forEach((r: any) => { map[r.config_key] = r.config_value; });
-        setBrandConfig({
+        const config: BrandConfig = {
           primaryColor: map.brand_primary_color || '#1B3A6B',
           accentColor: map.brand_accent_color || '#f59e0b',
           logoUrl: map.brand_logo_url || '',
           restaurantName: map.restaurant_name || 'SistemaRest',
           theme: (map.brand_theme as 'dark' | 'light') || 'dark',
-        });
+        };
+        setBrandConfig(config);
+        sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
   }, []);
 
