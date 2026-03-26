@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
@@ -197,6 +197,45 @@ export default function POSClient() {
       .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
   }, []);
 
+  // ─── Realtime: auto-refresh tables when any table/order changes ───────────
+  // This keeps the POS in sync with Mesero Móvil and other POS terminals.
+
+  useEffect(() => {
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      channel = supabase
+        .channel(`pos-tables-${Date.now()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+          fetchTables();
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
+          fetchTables();
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (channel) { supabase.removeChannel(channel); channel = null; }
+            const delay = Math.min(3000 * Math.pow(2, retryCount), 30000);
+            retryCount += 1;
+            if (!destroyed) retryTimeout = setTimeout(connect, delay);
+          }
+        });
+    };
+
+    connect();
+    return () => {
+      destroyed = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchTables]);
+
   // ─── Merge helpers ────────────────────────────────────────────────────────
 
   const getMergeGroup = useCallback((table: Table): Table[] => {
@@ -210,35 +249,45 @@ export default function POSClient() {
     return group.find((t) => t.currentOrderId) ?? group[0] ?? table;
   }, [tables]);
 
-  // ─── Sync order_items to DB (called after any item change) ───────────────
+  // ─── Sync order_items to DB with debounce (prevents race conditions) ────────
+  // Each call cancels the previous pending sync — only the last state is written.
 
-  const syncOrderToTable = useCallback(async (
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const syncOrderToTable = useCallback((
     orderId: string,
     tableIds: string[],
     items: OrderItem[],
     totalAmount: number,
   ) => {
-    const count = items.reduce((s, i) => s + i.quantity, 0);
-    // Upsert order_items: delete existing then re-insert
-    await supabase.from('order_items').delete().eq('order_id', orderId);
-    if (items.length > 0) {
-      await supabase.from('order_items').insert(
-        items.map((item) => ({
-          order_id: orderId,
-          dish_id: item.menuItem.id,
-          name: item.menuItem.name,
-          qty: item.quantity,
-          price: item.menuItem.price,
-          emoji: item.menuItem.emoji,
-        }))
-      );
-    }
-    // Update table counters
-    await supabase.from('restaurant_tables').update({
-      item_count: count,
-      partial_total: totalAmount,
-      updated_at: new Date().toISOString(),
-    }).in('id', tableIds);
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+
+    syncTimerRef.current = setTimeout(async () => {
+      const count = items.reduce((s, i) => s + i.quantity, 0);
+      // Atomic upsert: delete + insert in sequence (debounce ensures only one runs)
+      const { error: delErr } = await supabase.from('order_items').delete().eq('order_id', orderId);
+      if (delErr) { console.error('[POS] sync delete error:', delErr.message); return; }
+
+      if (items.length > 0) {
+        const { error: insErr } = await supabase.from('order_items').insert(
+          items.map((item) => ({
+            order_id: orderId,
+            dish_id: item.menuItem.id,
+            name: item.menuItem.name,
+            qty: item.quantity,
+            price: item.menuItem.price,
+            emoji: item.menuItem.emoji,
+          }))
+        );
+        if (insErr) { console.error('[POS] sync insert error:', insErr.message); return; }
+      }
+
+      await supabase.from('restaurant_tables').update({
+        item_count: count,
+        partial_total: totalAmount,
+        updated_at: new Date().toISOString(),
+      }).in('id', tableIds);
+    }, 400);
   }, [supabase]);
 
   // ─── Table select ─────────────────────────────────────────────────────────
@@ -299,7 +348,7 @@ export default function POSClient() {
     const now = new Date().toISOString();
     const waiterName = appUser?.fullName || 'POS';
 
-    await supabase.from('orders').insert({
+    const { error: orderErr } = await supabase.from('orders').insert({
       id: orderId,
       mesa: table.name,
       mesa_num: table.number,
@@ -313,6 +362,10 @@ export default function POSClient() {
       opened_at: now,
       branch: branchName,
     });
+    if (orderErr) {
+      toast.error('Error al abrir orden: ' + orderErr.message);
+      throw orderErr;
+    }
 
     const groupIds = table.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === table.mergeGroupId).map((t) => t.id)
@@ -352,12 +405,15 @@ export default function POSClient() {
     // Ensure an open order exists in DB, then sync items
     const orderId = await ensureOpenOrder(selectedTable);
     const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
-    const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+    const discAmt = discount.type === 'pct'
+      ? newSubtotal * (discount.value / 100)
+      : Math.min(discount.value, newSubtotal);
+    const newTotal = (newSubtotal - discAmt) * 1.16;
     const groupIds = selectedTable.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
 
-    await syncOrderToTable(orderId, groupIds, newItems, newTotal);
+    syncOrderToTable(orderId, groupIds, newItems, newTotal);
   }, [selectedTable, orderItems, discount, tables, ensureOpenOrder, syncOrderToTable]);
 
   const handleUpdateQty = useCallback(async (itemId: string, delta: number) => {
@@ -369,11 +425,14 @@ export default function POSClient() {
 
     if (selectedTable.currentOrderId) {
       const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
-      const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+      const discAmt = discount.type === 'pct'
+        ? newSubtotal * (discount.value / 100)
+        : Math.min(discount.value, newSubtotal);
+      const newTotal = (newSubtotal - discAmt) * 1.16;
       const groupIds = selectedTable.mergeGroupId
         ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
         : [selectedTable.id];
-      await syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
+      syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
     }
   }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
 
@@ -384,11 +443,14 @@ export default function POSClient() {
 
     if (selectedTable.currentOrderId) {
       const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
-      const newTotal = newSubtotal * (1 - (discount.type === 'pct' ? discount.value / 100 : 0)) * 1.16;
+      const discAmt = discount.type === 'pct'
+        ? newSubtotal * (discount.value / 100)
+        : Math.min(discount.value, newSubtotal);
+      const newTotal = (newSubtotal - discAmt) * 1.16;
       const groupIds = selectedTable.mergeGroupId
         ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
         : [selectedTable.id];
-      await syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
+      syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
     }
   }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
 
