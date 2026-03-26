@@ -195,7 +195,7 @@ export default function KitchenModule() {
       .from('orders')
       .select('*, order_items(*)')
       .in('status', ['abierta', 'preparacion', 'lista'])
-      .not('kitchen_status', 'is', null)
+      .neq('kitchen_status', 'en_edicion')
       .order('created_at', { ascending: true });
     if (error) { toast.error('Error al cargar órdenes de cocina'); return; }
 
