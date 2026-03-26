@@ -12,7 +12,7 @@ import PaymentModal from './PaymentModal';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { useOrderFlow } from '@/hooks/useOrderFlow';
-import type { DbTable, DbOrderItem, DbDish } from '@/lib/supabase/types';
+
 import { Merge, X } from 'lucide-react';
 
 export type TableStatus = 'libre' | 'ocupada' | 'espera';
