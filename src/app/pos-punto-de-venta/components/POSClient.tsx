@@ -106,13 +106,24 @@ export default function POSClient() {
 
   const fetchTables = useCallback(async () => {
     setLoadingTables(true);
-    // First check system_config for table_count to sync
-    const { data: configData } = await supabase.from('system_config').select('config_value').eq('config_key', 'table_count').single();
+    // Fetch system_config and restaurant_tables in parallel, layout separately (may 404)
+    const [{ data: configData }, { data, error }] = await Promise.all([
+      supabase.from('system_config').select('config_value').eq('config_key', 'table_count').single(),
+      supabase.from('restaurant_tables').select('*').order('number'),
+    ]);
+
+    let layoutData: any = null;
+    try {
+      const res = await supabase.from('restaurant_layout').select('*').limit(1).single();
+      layoutData = res.data ?? null;
+    } catch {
+      layoutData = null;
+    }
+
     const configuredCount = configData ? parseInt(configData.config_value) : 0;
 
-    const { data, error } = await supabase.from('restaurant_tables').select('*').order('number');
     if (!error && data) {
-      let tableList = data.map((t) => ({
+      let tableList = (data as any[]).map((t) => ({
         id: t.id,
         number: t.number,
         name: t.name,
@@ -159,17 +170,11 @@ export default function POSClient() {
       setTables(tableList);
     }
 
-    // Fetch restaurant layout
-    try {
-      const { data: layoutData } = await supabase.from('restaurant_layout').select('*').limit(1).single();
-      if (layoutData) {
-        setLayoutId(layoutData.id);
-        setLayoutTables((layoutData.tables_layout as LayoutTablePosition[]) || []);
-      } else {
-        setLayoutTables([]);
-        setLayoutId(null);
-      }
-    } catch {
+    // Apply layout data (already fetched in parallel above)
+    if (layoutData) {
+      setLayoutId(layoutData.id);
+      setLayoutTables((layoutData.tables_layout as LayoutTablePosition[]) || []);
+    } else {
       setLayoutTables([]);
       setLayoutId(null);
     }
@@ -227,12 +232,14 @@ export default function POSClient() {
 
   const handleTableSelect = async (table: Table) => {
     if (mergeMode) {
+      // In merge mode, toggle selection
       setMergeSelection((prev) =>
         prev.includes(table.id) ? prev.filter((id) => id !== table.id) : [...prev, table.id]
       );
       return;
     }
 
+    // If table belongs to a merge group, use the primary table's order
     const primary = getGroupPrimary(table);
     setSelectedTable(primary);
     setDiscount({ type: 'pct', value: 0 });
@@ -245,10 +252,15 @@ export default function POSClient() {
         .eq('order_id', primary.currentOrderId);
 
       if (existingItems && existingItems.length > 0) {
+        // Re-hydrate order items with menu item data
         const dishIds = [...new Set(existingItems.map((i: any) => i.dish_id).filter(Boolean))];
         let dishMap: Record<string, MenuItem> = {};
+
         if (dishIds.length > 0) {
-          const { data: dishes } = await supabase.from('dishes').select('*').in('id', dishIds);
+          const { data: dishes } = await supabase
+            .from('dishes')
+            .select('*')
+            .in('id', dishIds);
           (dishes || []).forEach((d: any) => {
             dishMap[d.id] = {
               id: d.id, name: d.name, category: d.category,
@@ -257,10 +269,16 @@ export default function POSClient() {
             };
           });
         }
+
         const restored: OrderItem[] = existingItems.map((i: any) => ({
           menuItem: dishMap[i.dish_id] ?? {
-            id: i.dish_id ?? i.id, name: i.name, category: '',
-            price: Number(i.price), description: '', available: true, emoji: i.emoji ?? '\u{1F37D}\uFE0F',
+            id: i.dish_id ?? i.id,
+            name: i.name,
+            category: '',
+            price: Number(i.price),
+            description: '',
+            available: true,
+            emoji: i.emoji ?? '🍽️',
           },
           quantity: i.qty,
         }));
@@ -271,6 +289,7 @@ export default function POSClient() {
     } else {
       setOrderItems([]);
     }
+
     setView('menu');
   };
 
@@ -322,10 +341,12 @@ export default function POSClient() {
   // ─── Cancel / Free table ──────────────────────────────────────────────────
   const handleCancelTable = async () => {
     if (!selectedTable) return;
+
     const confirmed = window.confirm(
-      `\u00bfSeguro que deseas cancelar y liberar ${selectedTable.name}?\n\nEsta acción eliminará todos los artículos de la orden sin cobrar.`
+      `¿Seguro que deseas cancelar y liberar ${selectedTable.name}?\n\nEsta acción eliminará todos los artículos de la orden sin cobrar.`
     );
     if (!confirmed) return;
+
     const groupIds = selectedTable.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
@@ -399,14 +420,21 @@ export default function POSClient() {
           }))
         );
 
-        // ─── Deduct inventory (parallel fetch + allSettled for resilience) ────
+        // ─── Deduct inventory based on dish recipes (with rollback) ──────
+        // 1. Collect all recipe requirements first, then apply all at once
         type StockUpdate = {
-          ingredientId: string; deductQty: number;
-          currentStock: number; newStock: number;
-          dishName: string; dishQty: number;
+          ingredientId: string;
+          deductQty: number;
+          currentStock: number;
+          newStock: number;
+          ingredientName: string;
+          dishName: string;
+          dishQty: number;
         };
+
         const stockUpdates: StockUpdate[] = [];
 
+        // Fetch all recipes in parallel
         const recipeResults = await Promise.all(
           orderItems.map((orderItem) =>
             supabase
@@ -424,20 +452,25 @@ export default function POSClient() {
             if (!ingredient) continue;
             const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
             const currentStock = Number(ingredient.stock);
+            const newStock = Math.max(0, currentStock - deductQty);
             stockUpdates.push({
               ingredientId: recipeItem.ingredient_id,
-              deductQty, currentStock,
-              newStock: Math.max(0, currentStock - deductQty),
+              deductQty,
+              currentStock,
+              newStock,
+              ingredientName: ingredient.name,
               dishName: orderItem.menuItem.name,
               dishQty: orderItem.quantity,
             });
           }
         }
 
+        // 2. Apply all stock updates + movement logs in parallel
         if (stockUpdates.length > 0) {
-          await Promise.allSettled([
+          const updateResults = await Promise.allSettled([
             ...stockUpdates.map((u) =>
-              supabase.from('ingredients')
+              supabase
+                .from('ingredients')
                 .update({ stock: u.newStock, updated_at: new Date().toISOString() })
                 .eq('id', u.ingredientId)
             ),
@@ -453,6 +486,11 @@ export default function POSClient() {
               })
             ),
           ]);
+
+          const failed = updateResults.filter((r) => r.status === 'rejected');
+          if (failed.length > 0) {
+            console.error(`[POS] ${failed.length} actualizaciones de inventario fallaron:`, failed);
+          }
         }
         // ─────────────────────────────────────────────────────────────────
       }

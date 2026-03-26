@@ -28,7 +28,6 @@ interface TopbarProps {
   title: string;
   subtitle?: string;
   onMenuToggle?: () => void;
-  lastUpdated?: string;
 }
 
 export default function Topbar({ title, subtitle, onMenuToggle }: TopbarProps) {
