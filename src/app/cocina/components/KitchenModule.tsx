@@ -186,6 +186,7 @@ export default function KitchenModule() {
       .from('orders')
       .select('*, order_items(*)')
       .in('status', ['abierta', 'preparacion', 'lista'])
+      .not('kitchen_status', 'is', null)
       .order('created_at', { ascending: true });
     if (error) { toast.error('Error al cargar órdenes de cocina'); return; }
 
@@ -200,7 +201,7 @@ export default function KitchenModule() {
           emoji: item.emoji || '🍽️',
           notes: item.notes,
         })),
-        kitchenStatus: (o.kitchen_status || 'pendiente') as KitchenStatus,
+        kitchenStatus: (o.kitchen_status ?? 'pendiente') as KitchenStatus,
         kitchenNotes: o.kitchen_notes || null,
         kitchenStartedAt: o.kitchen_started_at || null,
         kitchenCompletedAt: o.kitchen_completed_at || null,

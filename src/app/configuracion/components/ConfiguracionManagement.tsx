@@ -1,5 +1,6 @@
 'use client';
 
+import { toast } from 'sonner';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, Printer, Settings2, RotateCcw, AlertTriangle, Eye, EyeOff, Wifi, Usb, Bluetooth, LayoutGrid, Move, Trash2, Plus, XCircle } from 'lucide-react';
 import UsuariosManagement from './UsuariosManagement';
@@ -260,12 +261,23 @@ export default function ConfiguracionManagement() {
 
   // ── Save restaurant settings ─────────────────────────────────────────────────
   async function handleSaveSettings() {
-    await supabase.from('system_config').upsert({ config_key: 'restaurant_name', config_value: restaurantNameDraft }, { onConflict: 'config_key' });
-    await supabase.from('system_config').upsert({ config_key: 'brand_primary_color', config_value: primaryColor }, { onConflict: 'config_key' });
-    await supabase.from('system_config').upsert({ config_key: 'brand_theme', config_value: appTheme }, { onConflict: 'config_key' });
-    setRestaurantName(restaurantNameDraft);
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 2500);
+    try {
+      const { error } = await supabase.from('system_config').upsert([
+        { config_key: 'restaurant_name', config_value: restaurantNameDraft },
+        { config_key: 'brand_primary_color', config_value: primaryColor },
+        { config_key: 'brand_theme', config_value: appTheme },
+      ], { onConflict: 'config_key' });
+      if (error) throw error;
+
+      // Invalidate brandConfig sessionStorage cache so all tabs pick up the change
+      sessionStorage.removeItem('sistemarest_brand_config');
+
+      setRestaurantName(restaurantNameDraft);
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 2500);
+    } catch (err: any) {
+      toast.error('Error al guardar configuración: ' + (err?.message ?? 'Intenta de nuevo'));
+    }
   }
 
   // ── Save operation settings ──────────────────────────────────────────────────

@@ -38,7 +38,7 @@ const navGroups: { group: string; items: NavItem[] }[] = [
     group: 'GESTIÓN',
     items: [
       { label: 'Menú', icon: UtensilsCrossed, href: '/menu', pageKey: 'menu' },
-      { label: 'Inventario', icon: Package, href: '/inventario', badge: 2, pageKey: 'inventario' },
+      { label: 'Inventario', icon: Package, href: '/inventario', pageKey: 'inventario' },
       { label: 'Reservaciones', icon: Calendar, href: '/reservaciones', pageKey: 'reservaciones' },
       { label: 'Lealtad', icon: Star, href: '/lealtad', pageKey: 'lealtad' },
     ],
@@ -110,6 +110,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
   const [openOrdersCount, setOpenOrdersCount] = useState<number>(0);
+  const [lowStockCount, setLowStockCount] = useState<number>(0);
 
   // Dynamic sidebar colors from brandConfig
   const sidebarBg = brandConfig.theme === 'light' ? '#f8fafc' : (brandConfig.primaryColor || '#1B3A6B');
@@ -166,6 +167,23 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     };
     fetchOpenOrders();
     const interval = setInterval(fetchOpenOrders, 60000);
+    return () => clearInterval(interval);
+  }, [supabase]);
+
+  // Load low-stock ingredient count and refresh every 5 minutes
+  useEffect(() => {
+    const fetchLowStock = async () => {
+      const { data } = await supabase
+        .from('ingredients')
+        .select('stock, min_stock')
+        .filter('min_stock', 'gt', 0);
+      const count = (data || []).filter(
+        (i: any) => Number(i.stock) <= Number(i.min_stock)
+      ).length;
+      setLowStockCount(count);
+    };
+    fetchLowStock();
+    const interval = setInterval(fetchLowStock, 300000); // 5 min
     return () => clearInterval(interval);
   }, [supabase]);
 
@@ -251,6 +269,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               const badge = item.pageKey === 'orders'
                 ? (openOrdersCount > 0 ? openOrdersCount : undefined)
+                : item.pageKey === 'inventario'
+                ? (lowStockCount > 0 ? lowStockCount : undefined)
                 : item.badge;
               return (
                 <Link key={item.href} href={item.href}>
