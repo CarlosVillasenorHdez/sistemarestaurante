@@ -315,7 +315,7 @@ export default function POSClient() {
       // Check if already sent to kitchen
       supabase.from('orders').select('kitchen_status').eq('id', primary.currentOrderId).single()
         .then(({ data }) => {
-          setKitchenSent(data?.kitchen_status != null && data.kitchen_status !== null);
+          setKitchenSent(data?.kitchen_status != null && data.kitchen_status !== 'en_edicion');
         });
       const { data: existingItems } = await supabase
         .from('order_items').select('*').eq('order_id', primary.currentOrderId);
@@ -369,7 +369,7 @@ export default function POSClient() {
       discount: 0,
       total: 0,
       status: 'abierta',
-      kitchen_status: 'pendiente',
+      kitchen_status: 'en_edicion',
       opened_at: now,
       branch: branchName,
     });

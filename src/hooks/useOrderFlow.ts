@@ -121,8 +121,7 @@ export function useOrderFlow() {
       discount: 0,
       total: 0,
       status: 'abierta',
-      kitchen_status: null,
-      opened_at: now,
+      kitchen_status: 'en_edicion',
       branch: branchName,
     });
 
@@ -311,7 +310,7 @@ export function useOrderFlow() {
         const { error } = await supabase.from('orders')
           .update({
             status: 'cancelada',
-            kitchen_status: null,   // remove from KDS immediately
+            kitchen_status: 'en_edicion',  // hide from KDS immediately
             updated_at: new Date().toISOString(),
           })
           .eq('id', orderId);
