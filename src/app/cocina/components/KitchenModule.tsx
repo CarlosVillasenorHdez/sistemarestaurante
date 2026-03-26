@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import { createClient } from '@/lib/supabase/client';
 import { ChefHat, Clock, CheckCircle, AlertCircle, RefreshCw, Bell, Flame, Coffee, UtensilsCrossed, Play, Check } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,7 @@ export default function KitchenModule() {
       .select('*, order_items(*)')
       .in('status', ['abierta', 'preparacion', 'lista'])
       .order('created_at', { ascending: true });
+    if (error) { toast.error('Error al cargar órdenes de cocina'); return; }
 
     if (!error && data) {
       const mapped: KitchenOrder[] = data.map((o: any) => ({
@@ -286,7 +288,11 @@ export default function KitchenModule() {
     };
     updates.status = statusMap[next];
 
-    await supabase.from('orders').update(updates).eq('id', orderId);
+    const { error } = await supabase.from('orders').update(updates).eq('id', orderId);
+    if (error) {
+      toast.error('Error al actualizar estado: ' + error.message);
+      return;
+    }
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
@@ -297,11 +303,15 @@ export default function KitchenModule() {
   };
 
   const handleDeliver = async (orderId: string) => {
-    await supabase.from('orders').update({
+    const { error } = await supabase.from('orders').update({
       kitchen_status: 'entregada',
       status: 'cerrada',
       updated_at: new Date().toISOString(),
     }).eq('id', orderId);
+    if (error) {
+      toast.error('Error al marcar como entregada: ' + error.message);
+      return;
+    }
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
