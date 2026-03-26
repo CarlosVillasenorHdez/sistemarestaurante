@@ -5,24 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search } from 'lucide-react';
-
-interface Dish {
-  id: string;
-  name: string;
-  price: number;
-  category: string;
-  emoji: string;
-  available: boolean;
-}
-
-interface OrderItem {
-  dishId: string;
-  name: string;
-  price: number;
-  qty: number;
-  emoji: string;
-  notes: string;
-}
+import { useOrderFlow, type OrderFlowItem } from '@/hooks/useOrderFlow';
+import type { DbTable, DbDish } from '@/lib/supabase/types';
 
 interface Table {
   id: string;
@@ -30,6 +14,7 @@ interface Table {
   name: string;
   capacity: number;
   status: string;
+  currentOrderId?: string;
 }
 
 const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas', 'Extras'];
@@ -37,10 +22,12 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 export default function MeseroMobileView() {
   const supabase = createClient();
   const { appUser } = useAuth();
+  const { ensureOpenOrder, syncItems, loadOrderItems } = useOrderFlow();
+
   const [tables, setTables] = useState<Table[]>([]);
-  const [dishes, setDishes] = useState<Dish[]>([]);
+  const [dishes, setDishes] = useState<DbDish[]>([]);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderFlowItem[]>([]);
   const [category, setCategory] = useState('Todos');
   const [search, setSearch] = useState('');
   const [showCart, setShowCart] = useState(false);
@@ -48,8 +35,8 @@ export default function MeseroMobileView() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'tables' | 'menu'>('tables');
   const [branchName, setBranchName] = useState('Sucursal Principal');
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
 
-  // Load branch name from system_config on mount
   useEffect(() => {
     supabase
       .from('system_config')
@@ -66,14 +53,13 @@ export default function MeseroMobileView() {
         supabase.from('restaurant_tables').select('*').order('number'),
         supabase.from('dishes').select('*').eq('available', true).order('category').order('name'),
       ]);
-      setTables((tablesData || []).map((t: any) => ({
-        id: t.id, number: t.number, name: t.name, capacity: t.capacity, status: t.status,
+      setTables((tablesData || []).map((t: DbTable) => ({
+        id: t.id, number: t.number, name: t.name, capacity: t.capacity,
+        status: t.status, currentOrderId: t.current_order_id ?? undefined,
       })));
-      setDishes((dishesData || []).map((d: any) => ({
-        id: d.id, name: d.name, price: Number(d.price), category: d.category, emoji: d.emoji, available: d.available,
-      })));
+      setDishes((dishesData || []) as DbDish[]);
     } catch (err: any) {
-      toast.error('Error: ' + err.message);
+      toast.error('Error al cargar datos: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -81,7 +67,7 @@ export default function MeseroMobileView() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Realtime: refresh tables when status changes from another terminal
+  // Realtime: refresh when table status changes from another terminal
   useEffect(() => {
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
@@ -115,88 +101,130 @@ export default function MeseroMobileView() {
     };
   }, [supabase, loadData]);
 
-  const selectTable = (table: Table) => {
+  // ─── Table selection: load existing order if mesa already open ────────────
+
+  const selectTable = async (table: Table) => {
     setSelectedTable(table);
-    setOrderItems([]);
-    setView('menu');
     setShowCart(false);
+
+    if (table.currentOrderId) {
+      // Mesa ocupada — cargar items existentes
+      const existing = await loadOrderItems(table.currentOrderId);
+      setOrderItems(existing);
+      setCurrentOrderId(table.currentOrderId);
+    } else {
+      setOrderItems([]);
+      setCurrentOrderId(null);
+    }
+
+    setView('menu');
   };
 
-  const addItem = (dish: Dish) => {
-    setOrderItems(prev => {
-      const existing = prev.find(i => i.dishId === dish.id);
-      if (existing) {
-        return prev.map(i => i.dishId === dish.id ? { ...i, qty: i.qty + 1 } : i);
-      }
-      return [...prev, { dishId: dish.id, name: dish.name, price: dish.price, qty: 1, emoji: dish.emoji, notes: '' }];
-    });
+  // ─── Item management ──────────────────────────────────────────────────────
+
+  const computeTotal = (items: OrderFlowItem[]) =>
+    items.reduce((s, i) => s + i.qty * i.price, 0);
+
+  const syncToDb = useCallback(async (
+    newItems: OrderFlowItem[],
+    table: Table,
+    orderId: string,
+  ) => {
+    const total = computeTotal(newItems) * 1.16;
+    syncItems(orderId, [table.id], newItems, total);
+  }, [syncItems]);
+
+  const addItem = async (dish: DbDish) => {
+    if (!selectedTable) return;
+
+    const newItems = (() => {
+      const existing = orderItems.find(i => i.dishId === dish.id);
+      if (existing) return orderItems.map(i => i.dishId === dish.id ? { ...i, qty: i.qty + 1 } : i);
+      return [...orderItems, {
+        dishId: dish.id, name: dish.name, price: Number(dish.price),
+        qty: 1, emoji: dish.emoji, notes: '',
+      }];
+    })();
+
+    setOrderItems(newItems);
+
+    // Ensure open order exists, then sync
+    const waiter = appUser?.fullName || 'Mesero';
+    const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
+    const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
+    if (!currentOrderId) {
+      setCurrentOrderId(orderId);
+      setSelectedTable(prev => prev ? { ...prev, currentOrderId: orderId } : prev);
+    }
+    syncToDb(newItems, selectedTable, orderId);
   };
 
-  const removeItem = (dishId: string) => {
-    setOrderItems(prev => {
-      const existing = prev.find(i => i.dishId === dishId);
-      if (existing && existing.qty > 1) {
-        return prev.map(i => i.dishId === dishId ? { ...i, qty: i.qty - 1 } : i);
-      }
-      return prev.filter(i => i.dishId !== dishId);
-    });
+  const removeItem = async (dishId: string) => {
+    if (!selectedTable || !currentOrderId) {
+      // No order yet — just update local state
+      setOrderItems(prev => {
+        const ex = prev.find(i => i.dishId === dishId);
+        if (ex && ex.qty > 1) return prev.map(i => i.dishId === dishId ? { ...i, qty: i.qty - 1 } : i);
+        return prev.filter(i => i.dishId !== dishId);
+      });
+      return;
+    }
+    const newItems = orderItems.reduce<OrderFlowItem[]>((acc, i) => {
+      if (i.dishId !== dishId) return [...acc, i];
+      if (i.qty > 1) return [...acc, { ...i, qty: i.qty - 1 }];
+      return acc;
+    }, []);
+    setOrderItems(newItems);
+    syncToDb(newItems, selectedTable, currentOrderId);
   };
 
   const getQty = (dishId: string) => orderItems.find(i => i.dishId === dishId)?.qty || 0;
 
-  const total = orderItems.reduce((s, i) => s + i.qty * i.price, 0);
+  const subtotal = computeTotal(orderItems);
+  const iva = subtotal * 0.16;
+  const total = subtotal + iva;
   const itemCount = orderItems.reduce((s, i) => s + i.qty, 0);
+
+  // ─── Send order to kitchen ────────────────────────────────────────────────
 
   const sendOrder = async () => {
     if (!selectedTable || orderItems.length === 0) return;
     setSending(true);
     try {
-      const orderId = `ORD-${Date.now()}`;
-      const subtotal = total;
-      const iva = subtotal * 0.16;
-      const orderTotal = subtotal + iva;
+      const waiter = appUser?.fullName || 'Mesero';
+      const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
+      const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
 
-      await supabase.from('orders').insert({
-        id: orderId,
-        mesa: selectedTable.name,
-        mesa_num: selectedTable.number,
-        mesero: appUser?.fullName || 'Mesero',
-        subtotal,
-        iva,
-        total: orderTotal,
-        status: 'abierta',
-        kitchen_status: 'pendiente',
-        opened_at: new Date().toISOString(),
-        branch: branchName,
-      });
-
+      // Final sync: flush debounce immediately
+      await supabase.from('order_items').delete().eq('order_id', orderId);
       await supabase.from('order_items').insert(
         orderItems.map(item => ({
           order_id: orderId,
+          dish_id: item.dishId,
           name: item.name,
           qty: item.qty,
           price: item.price,
           emoji: item.emoji,
         }))
       );
-
       await supabase.from('restaurant_tables').update({
         status: 'ocupada',
         current_order_id: orderId,
-        waiter: appUser?.fullName || 'Mesero',
-        opened_at: new Date().toISOString(),
+        waiter,
         item_count: itemCount,
-        partial_total: orderTotal,
+        partial_total: total,
+        updated_at: new Date().toISOString(),
       }).eq('id', selectedTable.id);
 
       toast.success(`Orden enviada a cocina — ${selectedTable.name}`);
       setOrderItems([]);
+      setCurrentOrderId(null);
       setShowCart(false);
       setView('tables');
       setSelectedTable(null);
       loadData();
     } catch (err: any) {
-      toast.error('Error: ' + err.message);
+      toast.error('Error al enviar orden: ' + err.message);
     } finally {
       setSending(false);
     }
@@ -218,7 +246,6 @@ export default function MeseroMobileView() {
 
   return (
     <div className="max-w-lg mx-auto">
-      {/* Table selection */}
       {view === 'tables' && (
         <div className="space-y-4">
           <p className="text-sm text-gray-500">Selecciona una mesa para tomar el pedido</p>
@@ -228,15 +255,16 @@ export default function MeseroMobileView() {
                 key={table.id}
                 onClick={() => selectTable(table)}
                 className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-1 border-2 transition-all active:scale-95 ${
-                  table.status === 'libre' ?'border-green-200 bg-green-50 hover:bg-green-100'
-                    : table.status === 'ocupada' ?'border-red-200 bg-red-50 hover:bg-red-100' :'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                  table.status === 'libre' ? 'border-green-200 bg-green-50 hover:bg-green-100'
+                    : table.status === 'ocupada' ? 'border-red-200 bg-red-50 hover:bg-red-100'
+                    : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
                 }`}
               >
                 <span className="text-2xl">🪑</span>
                 <span className="text-xs font-bold text-gray-800">{table.name}</span>
                 <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
                   table.status === 'libre' ? 'bg-green-100 text-green-700' :
-                  table.status === 'ocupada'? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  table.status === 'ocupada' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                 }`}>
                   {table.status === 'libre' ? 'Libre' : table.status === 'ocupada' ? 'Ocupada' : 'Espera'}
                 </span>
@@ -246,12 +274,13 @@ export default function MeseroMobileView() {
         </div>
       )}
 
-      {/* Menu view */}
       {view === 'menu' && selectedTable && (
         <div className="space-y-4">
-          {/* Header */}
           <div className="flex items-center gap-3">
-            <button onClick={() => { setView('tables'); setSelectedTable(null); setOrderItems([]); }} className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200">
+            <button
+              onClick={() => { setView('tables'); setSelectedTable(null); setOrderItems([]); setCurrentOrderId(null); }}
+              className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200"
+            >
               <ChevronLeft size={20} />
             </button>
             <div className="flex-1">
@@ -269,11 +298,10 @@ export default function MeseroMobileView() {
                   {itemCount}
                 </span>
               )}
-              {total > 0 && <span>${total.toLocaleString('es-MX', { minimumFractionDigits: 0 })}</span>}
+              {subtotal > 0 && <span>${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 0 })}</span>}
             </button>
           </div>
 
-          {/* Search */}
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -285,7 +313,6 @@ export default function MeseroMobileView() {
             />
           </div>
 
-          {/* Category tabs */}
           <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
             {CATEGORIES.map(cat => (
               <button
@@ -299,7 +326,6 @@ export default function MeseroMobileView() {
             ))}
           </div>
 
-          {/* Dish grid */}
           <div className="grid grid-cols-2 gap-3">
             {filteredDishes.map(dish => {
               const qty = getQty(dish.id);
@@ -310,7 +336,7 @@ export default function MeseroMobileView() {
                   </div>
                   <div className="p-3">
                     <p className="text-xs font-semibold text-gray-800 leading-tight mb-1 line-clamp-2">{dish.name}</p>
-                    <p className="text-sm font-bold" style={{ color: '#f59e0b' }}>${dish.price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-sm font-bold" style={{ color: '#f59e0b' }}>${Number(dish.price).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
                     <div className="flex items-center justify-between mt-2">
                       {qty === 0 ? (
                         <button
@@ -340,7 +366,6 @@ export default function MeseroMobileView() {
         </div>
       )}
 
-      {/* Cart drawer */}
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50">
           <div className="bg-white rounded-t-3xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
@@ -363,7 +388,11 @@ export default function MeseroMobileView() {
                       <Minus size={12} />
                     </button>
                     <span className="font-bold text-gray-800 w-5 text-center">{item.qty}</span>
-                    <button onClick={() => addItem({ id: item.dishId, name: item.name, price: item.price, emoji: item.emoji, category: '', available: true })} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#10b98120', color: '#10b981' }}>
+                    <button
+                      onClick={() => addItem(dishes.find(d => d.id === item.dishId) ?? { id: item.dishId, name: item.name, price: item.price, emoji: item.emoji, category: '', available: true, description: '', image: null, image_alt: null, popular: false, created_at: '', updated_at: null })}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: '#10b98120', color: '#10b981' }}
+                    >
                       <Plus size={12} />
                     </button>
                   </div>
@@ -376,15 +405,15 @@ export default function MeseroMobileView() {
             <div className="p-5 border-t border-gray-100 space-y-3">
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Subtotal</span>
-                <span>${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                <span>${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-sm text-gray-600">
                 <span>IVA (16%)</span>
-                <span>${(total * 0.16).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                <span>${iva.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between font-bold text-gray-900">
                 <span>Total</span>
-                <span>${(total * 1.16).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                <span>${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
               </div>
               <button
                 onClick={sendOrder}

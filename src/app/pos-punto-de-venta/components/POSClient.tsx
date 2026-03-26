@@ -11,6 +11,8 @@ import OrderPanel from './OrderPanel';
 import PaymentModal from './PaymentModal';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
+import { useOrderFlow } from '@/hooks/useOrderFlow';
+import type { DbTable, DbOrderItem, DbDish } from '@/lib/supabase/types';
 import { Merge, X } from 'lucide-react';
 
 export type TableStatus = 'libre' | 'ocupada' | 'espera';
@@ -98,6 +100,7 @@ export default function POSClient() {
   const [branchName, setBranchName] = useState('Sucursal Principal');
 
   const supabase = createClient();
+  const { closeOrder, cancelOrder: cancelOrderFlow } = useOrderFlow();
   const IVA_RATE = 0.16;
 
   const subtotal = orderItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
@@ -501,18 +504,8 @@ export default function POSClient() {
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
 
-    // Cancel the open order in DB if it exists
-    if (selectedTable.currentOrderId) {
-      await supabase.from('orders').update({
-        status: 'cancelada', updated_at: new Date().toISOString(),
-      }).eq('id', selectedTable.currentOrderId);
-    }
-
-    await supabase.from('restaurant_tables').update({
-      status: 'libre', current_order_id: null, waiter: null,
-      opened_at: null, item_count: null, partial_total: null,
-      merge_group_id: null, updated_at: new Date().toISOString(),
-    }).in('id', groupIds);
+    const ok = await cancelOrderFlow(selectedTable.currentOrderId ?? null, groupIds);
+    if (!ok) return;
 
     await fetchTables();
     setSelectedTable(null); setOrderItems([]); setView('tables');
@@ -524,104 +517,31 @@ export default function POSClient() {
   const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
     if (!selectedTable) return;
 
-    const now = new Date().toISOString();
-    const nowTime = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-
     const groupIds = selectedTable.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
 
-    if (selectedTable.currentOrderId) {
-      // Update the existing open order to closed
-      await supabase.from('orders').update({
-        subtotal,
-        iva,
-        discount: discountAmount,
-        total,
-        status: 'cerrada',
-        kitchen_status: 'entregada',
-        pay_method: method,
-        closed_at: now,
-        updated_at: now,
-      }).eq('id', selectedTable.currentOrderId);
+    // Use orderId from table state, or create one if missing (edge case)
+    const orderId = selectedTable.currentOrderId ?? `ORD-${Date.now()}`;
 
-      // Sync final order_items (in case discount changed totals)
-      await supabase.from('order_items').delete().eq('order_id', selectedTable.currentOrderId);
-      await supabase.from('order_items').insert(
-        orderItems.map((item) => ({
-          order_id: selectedTable.currentOrderId,
-          dish_id: item.menuItem.id,
-          name: item.menuItem.name,
-          qty: item.quantity,
-          price: item.menuItem.price,
-          emoji: item.menuItem.emoji,
-        }))
-      );
+    const flowItems = orderItems.map((i) => ({
+      dishId: i.menuItem.id, name: i.menuItem.name,
+      price: i.menuItem.price, qty: i.quantity,
+      emoji: i.menuItem.emoji, notes: i.notes,
+    }));
 
-      // ─── Deduct inventory (parallel + resilient) ──────────────────────
-      const recipeResults = await Promise.all(
-        orderItems.map((orderItem) =>
-          supabase.from('dish_recipes')
-            .select('ingredient_id, quantity, ingredients(stock, name, unit)')
-            .eq('dish_id', orderItem.menuItem.id)
-            .then((res) => ({ orderItem, data: res.data }))
-        )
-      );
+    const ok = await closeOrder({
+      orderId,
+      tableIds: groupIds,
+      items: flowItems,
+      subtotal, discountAmount, iva, total,
+      payMethod: method,
+      waiterName: selectedTable.waiter || appUser?.fullName || 'POS',
+      branchName,
+      openedAt: selectedTable.openedAt ?? null,
+    });
 
-      type StockUpdate = { ingredientId: string; deductQty: number; currentStock: number; newStock: number; dishName: string; dishQty: number };
-      const stockUpdates: StockUpdate[] = [];
-      for (const { orderItem, data: recipeItems } of recipeResults) {
-        if (!recipeItems) continue;
-        for (const recipeItem of recipeItems) {
-          const ingredient = (recipeItem as any).ingredients;
-          if (!ingredient) continue;
-          const deductQty = Number(recipeItem.quantity) * orderItem.quantity;
-          const currentStock = Number(ingredient.stock);
-          stockUpdates.push({
-            ingredientId: recipeItem.ingredient_id, deductQty, currentStock,
-            newStock: Math.max(0, currentStock - deductQty),
-            dishName: orderItem.menuItem.name, dishQty: orderItem.quantity,
-          });
-        }
-      }
-      if (stockUpdates.length > 0) {
-        await Promise.allSettled([
-          ...stockUpdates.map((u) => supabase.from('ingredients')
-            .update({ stock: u.newStock, updated_at: now }).eq('id', u.ingredientId)),
-          ...stockUpdates.map((u) => supabase.from('stock_movements').insert({
-            ingredient_id: u.ingredientId, movement_type: 'salida',
-            quantity: u.deductQty, previous_stock: u.currentStock, new_stock: u.newStock,
-            reason: `Venta: ${u.dishName} x${u.dishQty} — Orden ${selectedTable.currentOrderId}`,
-            created_by: 'Sistema POS',
-          })),
-        ]);
-      }
-      // ─────────────────────────────────────────────────────────────────
-    } else {
-      // Edge case: no open order exists yet (shouldn't happen, but handle gracefully)
-      const orderId = `ORD-${Date.now()}`;
-      await supabase.from('orders').insert({
-        id: orderId, mesa: selectedTable.name, mesa_num: selectedTable.number,
-        mesero: selectedTable.waiter || appUser?.fullName || 'POS',
-        subtotal, iva, discount: discountAmount, total,
-        status: 'cerrada', kitchen_status: 'entregada',
-        pay_method: method, opened_at: selectedTable.openedAt || now, closed_at: now,
-        branch: branchName,
-      });
-      await supabase.from('order_items').insert(
-        orderItems.map((item) => ({
-          order_id: orderId, dish_id: item.menuItem.id,
-          name: item.menuItem.name, qty: item.quantity, price: item.menuItem.price, emoji: item.menuItem.emoji,
-        }))
-      );
-    }
-
-    // Free all tables in the group
-    await supabase.from('restaurant_tables').update({
-      status: 'libre', current_order_id: null, waiter: null,
-      opened_at: null, item_count: null, partial_total: null,
-      merge_group_id: null, updated_at: now,
-    }).in('id', groupIds);
+    if (!ok) return;
 
     await fetchTables();
     setShowPaymentModal(false);
