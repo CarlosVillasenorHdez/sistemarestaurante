@@ -56,13 +56,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
 
-  const supabase = createClient();
-
-  // Guard: prevents the SIGNED_OUT listener from re-entering clearAuthState
-  // when WE triggered the sign-out.
+  // Track whether stale tokens were already wiped so we only do it once
+  const tokenWipedRef = useRef(false);
   const clearingRef = useRef(false);
 
+  const getSupabase = useCallback(() => createClient(), []);
+
   const fetchAppUser = useCallback(async (authUid: string) => {
+    const supabase = getSupabase();
     const { data, error } = await supabase
       .from('app_users').select('*').eq('auth_user_id', authUid).single();
     if (!error && data) {
@@ -74,19 +75,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } else {
       setAppUser(null);
     }
-  }, [supabase]);
+  }, [getSupabase]);
 
-  // Clears React state and storage without calling supabase.auth.signOut(),
-  // which would fire SIGNED_OUT and cause an infinite loop.
   const clearAuthState = useCallback(() => {
     if (clearingRef.current) return;
     clearingRef.current = true;
     try {
       wipeAuthStorage();
-      // Do NOT reset the singleton here — the active useEffect still holds
-      // a reference to this client and its subscription. Resetting it would
-      // create a new client on the next render while the old subscription
-      // is still alive, causing duplicate listeners and repeated token errors.
       setUser(null);
       setSession(null);
       setAppUser(null);
@@ -96,31 +91,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
+    let cancelled = false;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const init = async () => {
+      // If we already wiped tokens in a previous cycle, skip getSession
+      // and go straight to setting up a fresh listener.
+      const supabase = getSupabase();
+
+      const { data, error } = await supabase.auth.getSession();
+
+      if (cancelled) return;
+
       if (error) {
-        // Invalid / expired refresh token — wipe storage and reset the
-        // singleton so the next client creation starts completely fresh.
-        wipeAuthStorage();
-        resetSupabaseClient();
-        setUser(null);
-        setSession(null);
-        setAppUser(null);
-        setLoading(false);
-        return;
-      }
-      if (!data.session) {
-        setLoading(false);
-        return;
-      }
-      setSession(data.session);
-      setUser(data.session.user);
-      fetchAppUser(data.session.user.id).finally(() => setLoading(false));
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (clearingRef.current) return; // we triggered this — ignore
-
-      if (event === 'SIGNED_OUT') {
+        // Stale/invalid refresh token — wipe everything and reset the singleton.
+        // Do NOT set up onAuthStateChange on this broken client.
+        // Setting tokenWipedRef prevents an infinite wipe loop.
+        if (!tokenWipedRef.current) {
+          tokenWipedRef.current = true;
+          wipeAuthStorage();
+          resetSupabaseClient();
+        }
         setUser(null);
         setSession(null);
         setAppUser(null);
@@ -128,34 +119,67 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
-      // Background auto-refresh failed (stale/missing refresh token)
-      if (event === 'TOKEN_REFRESHED' && !newSession) {
-        clearAuthState();
-        setLoading(false);
-        return;
+      // Reset the wipe guard once we have a clean session cycle
+      tokenWipedRef.current = false;
+
+      if (data.session) {
+        setSession(data.session);
+        setUser(data.session.user);
+        await fetchAppUser(data.session.user.id);
       }
 
-      // Initial session event with no session — user is logged out
-      if (event === 'INITIAL_SESSION' && !newSession) {
-        setLoading(false);
-        return;
-      }
+      if (cancelled) return;
+      setLoading(false);
 
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      if (newSession?.user) {
-        fetchAppUser(newSession.user.id).finally(() => setLoading(false));
-      } else {
-        setAppUser(null);
-        setLoading(false);
-      }
-    });
+      // Set up the auth state listener only after a successful getSession
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((event, newSession) => {
+        if (cancelled || clearingRef.current) return;
 
-    return () => subscription.unsubscribe();
-  }, [supabase, fetchAppUser, clearAuthState]);
+        if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setSession(null);
+          setAppUser(null);
+          setLoading(false);
+          return;
+        }
+
+        if (event === 'TOKEN_REFRESHED' && !newSession) {
+          clearAuthState();
+          setLoading(false);
+          return;
+        }
+
+        if (event === 'INITIAL_SESSION' && !newSession) {
+          setLoading(false);
+          return;
+        }
+
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        if (newSession?.user) {
+          fetchAppUser(newSession.user.id).finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+        } else {
+          setAppUser(null);
+          setLoading(false);
+        }
+      });
+
+      subscription = sub;
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+      subscription?.unsubscribe();
+    };
+  }, [getSupabase, fetchAppUser, clearAuthState]);
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
+    const supabase = getSupabase();
     const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
     if (cached) {
       try { setBrandConfig(JSON.parse(cached)); return; }
@@ -178,9 +202,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setBrandConfig(config);
         sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
-  }, [supabase]);
+  }, [getSupabase]);
 
   const signIn = async (email: string, password: string) => {
+    const supabase = getSupabase();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
@@ -188,6 +213,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     clearingRef.current = true;
+    const supabase = getSupabase();
     try {
       await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
       wipeAuthStorage();
@@ -201,6 +227,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
+    const supabase = getSupabase();
     const { data, error } = await supabase.functions.invoke('create-app-user', {
       body: { username: username.trim().toLowerCase(), password, fullName, role, employeeId: employeeId || null },
     });
@@ -209,6 +236,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const updateUserPassword = async (authUserId: string, newPassword: string) => {
+    const supabase = getSupabase();
     const { error } = await supabase.functions.invoke('update-user-password', {
       body: { auth_user_id: authUserId, new_password: newPassword },
     });
@@ -216,6 +244,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const listUsers = async (): Promise<AppUser[]> => {
+    const supabase = getSupabase();
     const { data, error } = await supabase.from('app_users').select('*').order('full_name');
     if (error) throw error;
     return (data || []).map((u: any) => ({
@@ -226,11 +255,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const toggleUserActive = async (userId: string, isActive: boolean) => {
+    const supabase = getSupabase();
     const { error } = await supabase.from('app_users').update({ is_active: isActive }).eq('id', userId);
     if (error) throw error;
   };
 
   const updateUserRole = async (userId: string, role: AppRole) => {
+    const supabase = getSupabase();
     const { error } = await supabase.from('app_users').update({ app_role: role }).eq('id', userId);
     if (error) throw error;
   };
