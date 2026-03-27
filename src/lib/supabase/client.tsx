@@ -1,86 +1,87 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-// ─── Auth Storage Wipe ────────────────────────────────────────────────────────
+const PFX = 'sb_';
 
-/**
- * Wipe ALL Supabase auth tokens from localStorage, sessionStorage and cookies.
- */
-export function wipeAuthStorage() {
-  if (typeof window === 'undefined') return;
+const canUseCookies = (() => {
+  let cache: boolean | null = null;
+  return () => {
+    if (typeof document === 'undefined') return false;
+    if (cache !== null) return cache;
+    const k = '__sb_test__';
+    document.cookie = `${k}=1; Path=/; SameSite=None; Secure; Partitioned`;
+    cache = document.cookie.includes(k);
+    document.cookie = `${k}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+    return cache;
+  };
+})();
 
+const fromCookies = () =>
+  typeof document === 'undefined' ? [] :
+  document.cookie.split(';').filter(Boolean).map((c) => {
+    const [name, ...rest] = c.trim().split('=');
+    return { name: name.trim(), value: decodeURIComponent(rest.join('=')) };
+  }).filter((c) => c.name);
+
+const fromStorage = () => {
   try {
-    const keysToRemove = Object.keys(localStorage).filter((k) => {
-      const lower = k.toLowerCase();
-      return (
-        lower.startsWith('sb-') ||
-        lower.startsWith('sb_') ||
-        lower.startsWith('supabase') ||
-        lower.includes('auth-token') ||
-        lower.includes('auth_token') ||
-        lower.includes('refresh_token') ||
-        lower.includes('access_token')
-      );
-    });
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
-  } catch { /* SSR / private browsing */ }
+    return Object.keys(localStorage)
+      .filter((k) => k.startsWith(PFX))
+      .map((k) => ({ name: k.slice(PFX.length), value: localStorage.getItem(k) || '' }));
+  } catch { return []; }
+};
 
-  try {
-    const keysToRemove = Object.keys(sessionStorage).filter((k) => {
-      const lower = k.toLowerCase();
-      return (
-        lower.startsWith('sb-') ||
-        lower.startsWith('sb_') ||
-        lower.startsWith('supabase') ||
-        lower.includes('auth-token') ||
-        lower.includes('auth_token')
-      );
-    });
-    keysToRemove.forEach((k) => sessionStorage.removeItem(k));
-  } catch { /* SSR */ }
+const setCookie = (name: string, value: string, options?: any) => {
+  let s = `${name}=${encodeURIComponent(value)}; Path=${options?.path || '/'}; SameSite=None; Secure; Partitioned`;
+  if (options?.maxAge) s += `; Max-Age=${options.maxAge}`;
+  if (options?.domain) s += `; Domain=${options.domain}`;
+  if (options?.expires) s += `; Expires=${new Date(options.expires).toUTCString()}`;
+  document.cookie = s;
+};
 
-  try {
-    document.cookie.split(';').forEach((c) => {
-      const name = c.trim().split('=')[0].trim();
-      if (
-        name.startsWith('sb-') ||
-        name.startsWith('sb_') ||
-        name.toLowerCase().startsWith('supabase')
-      ) {
-        document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
-        document.cookie = `${name}=; Path=/; Max-Age=0`;
-      }
-    });
-  } catch { /* SSR */ }
+const getToken = () =>
+  (canUseCookies() ? fromCookies() : fromStorage())
+    .find((c) => c.name.includes('auth-token'))?.value ?? null;
+
+if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
+  (window as any).__sb_patched__ = true;
+  const orig = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const token = getToken();
+    const url = typeof input === 'string' ? input
+      : input instanceof URL ? input.href
+      : (input as Request).url;
+    if (token && (url.startsWith('/') || url.startsWith(window.location.origin))) {
+      init = { ...(init || {}), headers: { ...(init?.headers || {}), 'x-sb-token': token } };
+    }
+    return orig(input, init);
+  };
 }
 
-// ─── Singleton Client ─────────────────────────────────────────────────────────
-
-let _client: ReturnType<typeof createBrowserClient> | null = null;
-
-function buildClient() {
+export function createClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
+      cookies: {
+        getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
+        setAll(cookiesToSet) {
+          if (typeof document === 'undefined') return;
+          if (canUseCookies()) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              value ? setCookie(name, value, options)
+                    : (document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`)
+            );
+          } else {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              try {
+                value ? localStorage.setItem(`${PFX}${name}`, value)
+                      : localStorage.removeItem(`${PFX}${name}`);
+              } catch {}
+              if (value) setCookie(name, value, options);
+            });
+          }
+        },
       },
     }
   );
-}
-
-export function createClient() {
-  if (!_client) _client = buildClient();
-  return _client;
-}
-
-export function getSupabaseClient() {
-  return createClient();
-}
-
-// Reset singleton — call during sign-out or after invalid token wipe.
-export function resetSupabaseClient() {
-  _client = null;
 }

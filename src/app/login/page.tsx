@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient, wipeAuthStorage, resetSupabaseClient } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import AppLogo from '@/components/ui/AppLogo';
 import { Eye, EyeOff, LogIn, AlertCircle, ChevronDown, User } from 'lucide-react';
 
@@ -24,8 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function LoginPage() {
   const router = useRouter();
-  // Do NOT create the client at module/component level — create it inside handlers
-  // so it always uses the current singleton (which may have been reset after a wipe).
+  const supabase = createClient();
 
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
@@ -40,7 +39,6 @@ export default function LoginPage() {
   useEffect(() => {
     async function loadWorkers() {
       setLoadingWorkers(true);
-      const supabase = createClient();
       const { data } = await supabase
         .from('app_users')
         .select('username, full_name, app_role')
@@ -78,12 +76,6 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Wipe stale tokens AND reset the singleton so the next createClient()
-      // call builds a completely fresh GoTrueClient with no stale state.
-      wipeAuthStorage();
-      resetSupabaseClient();
-
-      const supabase = createClient();
       const email = `${selectedWorker.username.trim().toLowerCase()}@sistemarest.local`;
 
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
