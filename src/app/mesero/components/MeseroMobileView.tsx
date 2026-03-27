@@ -21,7 +21,7 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 
 export default function MeseroMobileView() {
   const supabase = createClient();
-  const { appUser } = useAuth();
+  const { } = useAuth();
   const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen } = useOrderFlow();
 
   const [tables, setTables] = useState<Table[]>([]);
@@ -150,7 +150,7 @@ export default function MeseroMobileView() {
     setOrderItems(newItems);
 
     // Ensure open order exists, then sync
-    const waiter = appUser?.fullName || 'Mesero';
+    const waiter = 'Administrador';
     const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
     const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
     if (!currentOrderId) {
@@ -196,7 +196,7 @@ export default function MeseroMobileView() {
     if (!selectedTable || orderItems.length === 0) return;
     setSending(true);
     try {
-      const waiter = appUser?.fullName || 'Mesero';
+      const waiter = 'Administrador';
       const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
       const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
 
@@ -264,8 +264,7 @@ export default function MeseroMobileView() {
                 onClick={() => selectTable(table)}
                 className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-1 border-2 transition-all active:scale-95 ${
                   table.status === 'libre' ? 'border-green-200 bg-green-50 hover:bg-green-100'
-                    : table.status === 'ocupada' ? 'border-red-200 bg-red-50 hover:bg-red-100'
-                    : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
+                    : table.status === 'ocupada'? 'border-red-200 bg-red-50 hover:bg-red-100' :'border-amber-200 bg-amber-50 hover:bg-amber-100'
                 }`}
               >
                 <span className="text-2xl">🪑</span>

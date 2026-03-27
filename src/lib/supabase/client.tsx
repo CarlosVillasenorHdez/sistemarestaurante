@@ -1,6 +1,6 @@
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-// ─── Wipe storage helper (kept for backwards compatibility) ───────────────────
+// ─── Wipe storage helper (kept for backward compat) ───────────────────────────
 export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
   try {
@@ -21,36 +21,35 @@ export function wipeAuthStorage() {
 
 export const clearSupabaseSession = wipeAuthStorage;
 
-// ─── Client factory ───────────────────────────────────────────────────────────
-// KEY CHANGE: persistSession: false
-//
-// The session lives in memory only — never written to localStorage or cookies.
-// This eliminates ALL stale-token errors:
-//   - No tokens survive closing the tab → no stale refresh tokens on next open
-//   - No "Invalid Refresh Token" loops → nothing to refresh on startup
-//   - autoRefreshToken: true → token refreshes normally while the tab is open
-//
-// Trade-off: users log in again when they open a new tab or refresh the page.
-// For a restaurant POS used during shifts, this is perfectly acceptable.
+// ─── No-op storage adapter ────────────────────────────────────────────────────
+const noopStorage = {
+  getItem: (_key: string): string | null => null,
+  setItem: (_key: string, _value: string): void => {},
+  removeItem: (_key: string): void => {},
+};
 
+// ─── Client factory ───────────────────────────────────────────────────────────
+// Uses @supabase/supabase-js directly (not @supabase/ssr) to avoid any
+// automatic token refresh that triggers "Invalid Refresh Token" errors.
 function createNewClient() {
-  return createBrowserClient(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
         persistSession: false,
-        autoRefreshToken: true,
+        autoRefreshToken: false,
         detectSessionInUrl: false,
+        storage: noopStorage,
       },
     }
   );
 }
 
-// Singleton on window — survives HMR module reloads in development.
-declare global { interface Window { __sr_supabase?: ReturnType<typeof createNewClient>; } }
+type SupabaseClient = ReturnType<typeof createNewClient>;
+declare global { interface Window { __sr_supabase?: SupabaseClient; } }
 
-export function createClient() {
+export function createClient(): SupabaseClient {
   if (typeof window !== 'undefined') {
     if (!window.__sr_supabase) {
       window.__sr_supabase = createNewClient();

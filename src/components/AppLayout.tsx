@@ -1,10 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -16,29 +14,6 @@ interface AppLayoutProps {
 export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const { loading, appUser } = useAuth();
-  const router = useRouter();
-
-  // Auth check — redirect to login if not authenticated
-  useEffect(() => {
-    if (!loading && !appUser) {
-      router.replace('/login');
-    }
-  }, [loading, appUser, router]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0f1e38' }}>
-        <div className="flex flex-col items-center gap-4">
-          <svg className="animate-spin h-8 w-8" viewBox="0 0 24 24" fill="none" style={{ color: '#f59e0b' }}>
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>Cargando sistema...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
