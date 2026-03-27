@@ -76,13 +76,52 @@ export function wipeAuthStorage() {
   } catch { /* SSR */ }
 }
 
+/**
+ * Proactively check stored session tokens for expiry or missing refresh token.
+ * If the stored session has no refresh_token or is clearly expired, wipe it
+ * before the Supabase client initializes — preventing the auto-refresh timer
+ * from firing on bad tokens and logging AuthApiError to the console.
+ */
+function wipeStaleTokensIfNeeded() {
+  if (typeof window === 'undefined') return;
+  try {
+    // Find any stored session JSON in localStorage
+    const sessionKeys = Object.keys(localStorage).filter(
+      (k) => (k.startsWith('sb-') || k.startsWith('sb_')) && k.includes('auth-token')
+    );
+    for (const key of sessionKeys) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        const session = parsed?.currentSession ?? parsed;
+        const hasRefreshToken = !!session?.refresh_token;
+        const expiresAt: number | undefined = session?.expires_at;
+        const nowSec = Math.floor(Date.now() / 1000);
+        // Wipe if no refresh token or token expired more than 60s ago
+        if (!hasRefreshToken || (expiresAt && expiresAt < nowSec - 60)) {
+          wipeAuthStorage();
+          return;
+        }
+      } catch {
+        // Malformed JSON — wipe it
+        wipeAuthStorage();
+        return;
+      }
+    }
+  } catch { /* ignore */ }
+}
+
 function createNewClient() {
+  // Wipe stale/invalid tokens before initializing so the auto-refresh
+  // timer never attempts to refresh a token that doesn't exist.
+  wipeStaleTokensIfNeeded();
+
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        // Suppress auto-retry on invalid tokens — we handle refresh errors manually
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: true,

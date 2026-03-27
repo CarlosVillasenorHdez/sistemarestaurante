@@ -116,13 +116,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (clearingRef.current) return; // we triggered this — ignore
 
       if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setSession(null);
+        setAppUser(null);
+        setLoading(false);
+        return;
+      }
+
+      // Background auto-refresh failed (stale/missing refresh token)
+      if (event === 'TOKEN_REFRESHED' && !newSession) {
         clearAuthState();
         setLoading(false);
         return;
       }
 
-      if (event === 'TOKEN_REFRESHED' && !newSession) {
-        clearAuthState();
+      // Initial session event with no session — user is logged out
+      if (event === 'INITIAL_SESSION' && !newSession) {
         setLoading(false);
         return;
       }
