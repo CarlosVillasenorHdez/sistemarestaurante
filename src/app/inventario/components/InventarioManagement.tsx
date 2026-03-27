@@ -150,6 +150,7 @@ export default function InventarioManagement() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [equivalences, setEquivalences] = useState<UnitEquivalence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [loadingEquiv, setLoadingEquiv] = useState(false);
   const [search, setSearch] = useState('');
@@ -280,52 +281,64 @@ export default function InventarioManagement() {
   }
   async function handleSave() {
     if (!validate()) return;
-    if (editingId) {
-      const ing = ingredients.find((i) => i.id === editingId);
-      const oldStock = ing?.stock ?? 0;
-      await supabase.from('ingredients').update({
-        name: form.name, category: form.category, stock: form.stock, unit: form.unit,
-        min_stock: form.minStock, reorder_point: form.reorderPoint, cost: form.cost,
-        supplier: form.supplier, supplier_url: form.supplierUrl, supplier_phone: form.supplierPhone,
-        notes: form.notes, updated_at: new Date().toISOString(),
-      }).eq('id', editingId);
-      // Log adjustment if stock changed
-      if (oldStock !== form.stock) {
-        await supabase.from('stock_movements').insert({
-          ingredient_id: editingId,
-          movement_type: 'ajuste',
-          quantity: Math.abs(form.stock - oldStock),
-          previous_stock: oldStock,
-          new_stock: form.stock,
-          reason: 'Ajuste manual desde inventario',
-          created_by: 'Administrador',
-        });
+    setSaving(true);
+    try {
+      if (editingId) {
+        const ing = ingredients.find((i) => i.id === editingId);
+        const oldStock = ing?.stock ?? 0;
+        const { error } = await supabase.from('ingredients').update({
+          name: form.name, category: form.category, stock: form.stock, unit: form.unit,
+          min_stock: form.minStock, reorder_point: form.reorderPoint, cost: form.cost,
+          supplier: form.supplier, supplier_url: form.supplierUrl, supplier_phone: form.supplierPhone,
+          notes: form.notes, updated_at: new Date().toISOString(),
+        }).eq('id', editingId);
+        if (error) throw error;
+        if (oldStock !== form.stock) {
+          await supabase.from('stock_movements').insert({
+            ingredient_id: editingId,
+            movement_type: 'ajuste',
+            quantity: Math.abs(form.stock - oldStock),
+            previous_stock: oldStock,
+            new_stock: form.stock,
+            reason: 'Ajuste manual desde inventario',
+            created_by: 'Administrador',
+          });
+        }
+        toast.success('Ingrediente actualizado');
+      } else {
+        const { data, error } = await supabase.from('ingredients').insert({
+          name: form.name, category: form.category, stock: form.stock, unit: form.unit,
+          min_stock: form.minStock, reorder_point: form.reorderPoint, cost: form.cost,
+          supplier: form.supplier, supplier_url: form.supplierUrl, supplier_phone: form.supplierPhone,
+          notes: form.notes,
+        }).select().single();
+        if (error) throw error;
+        if (data && form.stock > 0) {
+          await supabase.from('stock_movements').insert({
+            ingredient_id: data.id,
+            movement_type: 'entrada',
+            quantity: form.stock,
+            previous_stock: 0,
+            new_stock: form.stock,
+            reason: 'Stock inicial',
+            created_by: 'Administrador',
+          });
+        }
+        toast.success('Ingrediente creado');
       }
-    } else {
-      const { data } = await supabase.from('ingredients').insert({
-        name: form.name, category: form.category, stock: form.stock, unit: form.unit,
-        min_stock: form.minStock, reorder_point: form.reorderPoint, cost: form.cost,
-        supplier: form.supplier, supplier_url: form.supplierUrl, supplier_phone: form.supplierPhone,
-        notes: form.notes,
-      }).select().single();
-      if (data && form.stock > 0) {
-        await supabase.from('stock_movements').insert({
-          ingredient_id: data.id,
-          movement_type: 'entrada',
-          quantity: form.stock,
-          previous_stock: 0,
-          new_stock: form.stock,
-          reason: 'Stock inicial',
-          created_by: 'Administrador',
-        });
-      }
+      closeModal();
+      await fetchIngredients();
+    } catch (err: any) {
+      toast.error('Error al guardar: ' + (err?.message ?? 'Intenta de nuevo'));
+    } finally {
+      setSaving(false);
     }
-    closeModal();
-    await fetchIngredients();
   }
   async function handleDelete() {
     if (!deleteId) return;
-    await supabase.from('ingredients').delete().eq('id', deleteId);
+    const { error } = await supabase.from('ingredients').delete().eq('id', deleteId);
+    if (error) { toast.error('Error al eliminar: ' + error.message); return; }
+    toast.success('Ingrediente eliminado');
     setDeleteId(null);
     await fetchIngredients();
   }
