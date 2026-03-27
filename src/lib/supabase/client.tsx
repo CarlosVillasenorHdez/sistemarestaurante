@@ -1,6 +1,6 @@
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-// ─── Wipe storage helper ──────────────────────────────────────────────────────
+// ─── Wipe storage helper (kept for backward compat) ───────────────────────────
 export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
   try {
@@ -22,8 +22,6 @@ export function wipeAuthStorage() {
 export const clearSupabaseSession = wipeAuthStorage;
 
 // ─── No-op storage adapter ────────────────────────────────────────────────────
-// Supabase will never read from or write to localStorage/cookies.
-// This completely prevents "Invalid Refresh Token" errors on startup.
 const noopStorage = {
   getItem: (_key: string): string | null => null,
   setItem: (_key: string, _value: string): void => {},
@@ -31,8 +29,10 @@ const noopStorage = {
 };
 
 // ─── Client factory ───────────────────────────────────────────────────────────
+// Uses @supabase/supabase-js directly (not @supabase/ssr) to avoid any
+// automatic token refresh that triggers "Invalid Refresh Token" errors.
 function createNewClient() {
-  return createBrowserClient(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -46,9 +46,10 @@ function createNewClient() {
   );
 }
 
-declare global { interface Window { __sr_supabase?: ReturnType<typeof createNewClient>; } }
+type SupabaseClient = ReturnType<typeof createNewClient>;
+declare global { interface Window { __sr_supabase?: SupabaseClient; } }
 
-export function createClient() {
+export function createClient(): SupabaseClient {
   if (typeof window !== 'undefined') {
     if (!window.__sr_supabase) {
       window.__sr_supabase = createNewClient();
