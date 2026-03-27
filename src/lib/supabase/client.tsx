@@ -42,9 +42,8 @@ const getToken = () =>
   (canUseCookies() ? fromCookies() : fromStorage())
     .find((c) => c.name.includes('auth-token'))?.value ?? null;
 
-// Wipe all Supabase auth tokens from localStorage and cookies.
-// The client uses PFX='sb_' (underscore) in localStorage.
-// Called in login before signIn and in AuthContext on token errors.
+// ─── Storage wipe ─────────────────────────────────────────────────────────────
+
 export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
   try {
@@ -63,8 +62,41 @@ export function wipeAuthStorage() {
   } catch { /* SSR */ }
 }
 
-// Alias kept for any existing references
 export const clearSupabaseSession = wipeAuthStorage;
+
+// ─── Token validation ─────────────────────────────────────────────────────────
+// Check if the stored access token is expired WITHOUT making a network request.
+// If it's expired, wipe storage immediately before the GoTrueClient even starts,
+// preventing it from attempting a refresh that would hit the rate limit.
+
+function isStoredTokenExpired(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    // The access token is a JWT — check its exp claim
+    const items = canUseCookies() ? fromCookies() : fromStorage();
+    const tokenItem = items.find((c) => c.name.includes('auth-token'));
+    if (!tokenItem?.value) return false;
+
+    let parsed: any;
+    try { parsed = JSON.parse(tokenItem.value); } catch { return false; }
+
+    const accessToken = parsed?.access_token;
+    if (!accessToken) return false;
+
+    // Decode JWT payload (base64url middle segment)
+    const parts = accessToken.split('.');
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+
+    // exp is in seconds; add 30s buffer
+    const expiredAt = (payload.exp ?? 0) * 1000;
+    return Date.now() > expiredAt - 30000;
+  } catch {
+    return false;
+  }
+}
+
+// ─── fetch patch ──────────────────────────────────────────────────────────────
 
 if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   (window as any).__sb_patched__ = true;
@@ -81,11 +113,21 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
+// ─── Client factory ───────────────────────────────────────────────────────────
+
 function createNewClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      auth: {
+        // We handle token refresh errors manually in AuthContext.
+        // Keeping autoRefreshToken ON but we pre-validate the token before
+        // creating the client to prevent stale-token refresh storms.
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false, // prevents double-processing of URL tokens
+      },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
         setAll(cookiesToSet) {
@@ -111,10 +153,18 @@ function createNewClient() {
 }
 
 // Singleton — one GoTrueClient for the entire app.
-// Multiple instances each auto-refresh independently, exhausting the rate limit.
+// Before creating it, check if the stored token is already expired.
+// If it is, wipe storage so the client starts clean (no refresh attempt).
 let _client: ReturnType<typeof createNewClient> | null = null;
 
 export function createClient() {
-  if (!_client) _client = createNewClient();
+  if (!_client) {
+    // Pre-flight: if the stored token is expired, clear storage NOW
+    // before the GoTrueClient initializes and tries to refresh it.
+    if (isStoredTokenExpired()) {
+      wipeAuthStorage();
+    }
+    _client = createNewClient();
+  }
   return _client;
 }
