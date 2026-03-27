@@ -80,7 +80,7 @@ type AllRolePermissions = Record<string, RolePermissions>;
 const emptyForm = (): UserForm => ({ username: '', fullName: '', password: '12345', appRole: 'mesero', employeeId: '' });
 
 export default function UsuariosManagement() {
-  const { appUser, createUser, listUsers, toggleUserActive, updateUserRole } = useAuth();
+  const { createUser, listUsers, toggleUserActive, updateUserRole } = useAuth();
   const supabase = createClient();
 
   const [activeTab, setActiveTab] = useState<'usuarios' | 'permisos'>('usuarios');
@@ -109,7 +109,7 @@ export default function UsuariosManagement() {
   const [permSaved, setPermSaved] = useState(false);
   const [expandedRole, setExpandedRole] = useState<AppRole | null>('gerente');
 
-  const isAdmin = appUser?.appRole === 'admin';
+  const isAdmin = true;
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);

@@ -78,7 +78,7 @@ function MenuSkeleton() {
 }
 
 export default function POSClient() {
-  const { appUser } = useAuth();
+  const { } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
@@ -357,7 +357,7 @@ export default function POSClient() {
 
     const orderId = `ORD-${Date.now()}`;
     const now = new Date().toISOString();
-    const waiterName = appUser?.fullName || 'POS';
+    const waiterName = 'Administrador';
 
     const { error: orderErr } = await supabase.from('orders').insert({
       id: orderId,
@@ -399,7 +399,7 @@ export default function POSClient() {
     ));
 
     return orderId;
-  }, [supabase, tables, branchName, appUser]);
+  }, [supabase, tables, branchName]);
 
   // ─── Add / update items ───────────────────────────────────────────────────
 
@@ -580,7 +580,7 @@ export default function POSClient() {
       items: flowItems,
       subtotal, discountAmount, iva, total,
       payMethod: method,
-      waiterName: selectedTable.waiter || appUser?.fullName || 'POS',
+      waiterName: selectedTable.waiter || 'Administrador',
       branchName,
       openedAt: selectedTable.openedAt ?? null,
     });

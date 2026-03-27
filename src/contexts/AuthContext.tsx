@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
@@ -24,12 +24,9 @@ interface BrandConfig {
 }
 
 interface AuthContextValue {
-  user: any;
-  session: any;
   appUser: AppUser | null;
   loading: boolean;
   brandConfig: BrandConfig;
-  signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
   createUser: (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => Promise<void>;
   updateUserPassword: (authUserId: string, newPassword: string) => Promise<void>;
@@ -46,65 +43,25 @@ export const useAuth = () => {
   return context;
 };
 
+// Default admin user — no login required
+const DEFAULT_ADMIN: AppUser = {
+  id: 'admin',
+  authUserId: 'admin',
+  username: 'admin',
+  fullName: 'Administrador',
+  appRole: 'admin',
+  employeeId: null,
+  isActive: true,
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser]       = useState<any>(null);
-  const [session, setSession] = useState<any>(null);
-  const [appUser, setAppUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
     primaryColor: '#1B3A6B', accentColor: '#f59e0b',
     logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
 
-  // Stable ref — never changes between renders, survives re-renders without
-  // triggering useEffect deps. With persistSession:false the client starts
-  // clean every time — no stale tokens to worry about.
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
-
-  const fetchAppUser = useCallback(async (authUid: string) => {
-    const { data, error } = await supabase
-      .from('app_users').select('*').eq('auth_user_id', authUid).single();
-    if (!error && data) {
-      setAppUser({
-        id: data.id, authUserId: data.auth_user_id, username: data.username,
-        fullName: data.full_name, appRole: data.app_role as AppRole,
-        employeeId: data.employee_id, isActive: data.is_active,
-      });
-    } else {
-      setAppUser(null);
-    }
-  }, [supabase]);
-
-  useEffect(() => {
-    // With persistSession:false, getSession() returns null on every fresh load.
-    // No network request is made — the client just checks its in-memory state.
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        setLoading(false);
-        return;
-      }
-      setSession(data.session);
-      setUser(data.session.user);
-      fetchAppUser(data.session.user.id).finally(() => setLoading(false));
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (event === 'SIGNED_OUT' || !newSession) {
-        setUser(null);
-        setSession(null);
-        setAppUser(null);
-        setLoading(false);
-        return;
-      }
-      setSession(newSession);
-      setUser(newSession.user);
-      fetchAppUser(newSession.user.id).finally(() => setLoading(false));
-    });
-
-    return () => subscription.unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // runs once on mount
+  const supabase = createClient();
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
@@ -133,17 +90,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    return data;
-  };
-
   const signOut = async () => {
-    await supabase.auth.signOut().catch(() => {});
-    setUser(null);
-    setSession(null);
-    setAppUser(null);
+    // No-op — no auth to sign out from
   };
 
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
@@ -183,8 +131,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, session, appUser, loading, brandConfig,
-      signIn, signOut,
+      appUser: DEFAULT_ADMIN,
+      loading,
+      brandConfig,
+      signOut,
       createUser, updateUserPassword, listUsers, toggleUserActive, updateUserRole,
     }}>
       {children}

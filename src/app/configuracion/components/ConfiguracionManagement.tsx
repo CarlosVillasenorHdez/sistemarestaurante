@@ -90,7 +90,7 @@ interface LayoutTable {
 
 export default function ConfiguracionManagement() {
   const supabase = createClient();
-  const { appUser, signIn } = useAuth();
+  const { brandConfig } = useAuth();
   const [activeSection, setActiveSection] = useState<string>('restaurante');
 
   // Restaurant settings
@@ -341,26 +341,9 @@ export default function ConfiguracionManagement() {
 
   // ── System Reset ─────────────────────────────────────────────────────────────
   async function handleSystemReset() {
-    if (!resetPassword) {
-      setResetError('Ingresa la contraseña de administrador.');
-      return;
-    }
     setResetLoading(true);
     setResetError('');
     try {
-      // Verify admin password against current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user?.email) throw new Error('No autenticado');
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: resetPassword,
-      });
-      if (signInError) {
-        setResetError('Contraseña incorrecta. Intenta de nuevo.');
-        setResetLoading(false);
-        return;
-      }
-
       // ── Delete ALL operational/demo data ──────────────────────────────────
       // Orders and items
       await supabase.from('order_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -922,10 +905,10 @@ export default function ConfiguracionManagement() {
               {showClearConfirm && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.75)' }}>
                   <div className="w-full max-w-sm rounded-2xl p-6" style={{ backgroundColor: '#1a2535', border: '1px solid #2a3f5f' }}>
-                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'rgba(239,68,68,0.15)' }}>
+                    <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: 'rgba(245,158,11,0.15)' }}>
                       <Trash2 size={22} style={{ color: '#ef4444' }} />
                     </div>
-                    <h3 className="text-base font-bold text-center mb-2" style={{ color: '#f1f5f9' }}>Borrar todas las mesas</h3>
+                    <h3 className="text-base font-bold text-center mb-1" style={{ color: '#f1f5f9' }}>Borrar todas las mesas</h3>
                     <p className="text-sm text-center mb-5" style={{ color: 'rgba(255,255,255,0.5)' }}>
                       Se eliminarán todas las mesas del layout. Esta acción no se puede deshacer.
                     </p>

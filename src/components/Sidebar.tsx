@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, LogOut, Bell, GitBranch, Shield, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing,  } from 'lucide-react';
-import { useAuth, AppRole } from '@/contexts/AuthContext';
+import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
@@ -20,7 +20,7 @@ interface NavItem {
   pageKey: string;
 }
 
-// ─── All nav items with pageKey ───────────────────────────────────────────────
+// ─── All nav items ────────────────────────────────────────────────────────────
 
 const navGroups: { group: string; items: NavItem[] }[] = [
   {
@@ -67,28 +67,6 @@ const navGroups: { group: string; items: NavItem[] }[] = [
   },
 ];
 
-// ─── Role display config ──────────────────────────────────────────────────────
-
-const ROLE_LABELS: Record<AppRole, string> = {
-  admin: 'Administrador',
-  gerente: 'Gerente',
-  cajero: 'Cajero',
-  mesero: 'Mesero',
-  cocinero: 'Cocinero',
-  ayudante_cocina: 'Ayudante de Cocina',
-  repartidor: 'Repartidor',
-};
-
-const ROLE_COLORS: Record<AppRole, string> = {
-  admin: '#f59e0b',
-  gerente: '#3b82f6',
-  cajero: '#8b5cf6',
-  mesero: '#10b981',
-  cocinero: '#ef4444',
-  ayudante_cocina: '#f97316',
-  repartidor: '#14b8a6',
-};
-
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
@@ -96,18 +74,9 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
-  const router = useRouter();
-  const { appUser, signOut, brandConfig } = useAuth();
+  const { brandConfig } = useAuth();
   const supabase = createClient();
 
-  const currentRole: AppRole = appUser?.appRole ?? 'mesero';
-  const currentUser = {
-    name: appUser?.fullName ?? 'Usuario',
-    initials: (appUser?.fullName ?? 'U').split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase(),
-  };
-
-  // Permissions from DB
-  const [allowedPages, setAllowedPages] = useState<Set<string> | null>(null);
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
   const [openOrdersCount, setOpenOrdersCount] = useState<number>(0);
   const [lowStockCount, setLowStockCount] = useState<number>(0);
@@ -115,34 +84,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   // Dynamic sidebar colors from brandConfig
   const sidebarBg = brandConfig.theme === 'light' ? '#f8fafc' : (brandConfig.primaryColor || '#1B3A6B');
   const sidebarBorder = brandConfig.theme === 'light' ? '#e2e8f0' : '#243f72';
-  const textColor = brandConfig.theme === 'light' ? '#1e293b' : 'rgba(255,255,255,0.85)';
-
-  const loadPermissions = useCallback(async (role: AppRole) => {
-    if (role === 'admin') {
-      setAllowedPages(null); // null = all allowed
-      return;
-    }
-    try {
-      const { data } = await supabase
-        .from('role_permissions')
-        .select('page_key, can_access')
-        .eq('role', role);
-      if (data) {
-        const allowed = new Set<string>(
-          data.filter((r: any) => r.can_access).map((r: any) => r.page_key)
-        );
-        setAllowedPages(allowed);
-      }
-    } catch {
-      setAllowedPages(null);
-    }
-  }, [supabase]);
-
-  useEffect(() => {
-    if (appUser?.appRole) {
-      loadPermissions(appUser.appRole);
-    }
-  }, [appUser?.appRole, loadPermissions]);
 
   // Load branch name from system_config
   useEffect(() => {
@@ -183,27 +124,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       setLowStockCount(count);
     };
     fetchLowStock();
-    const interval = setInterval(fetchLowStock, 300000); // 5 min
+    const interval = setInterval(fetchLowStock, 300000);
     return () => clearInterval(interval);
   }, [supabase]);
-
-  function canAccess(pageKey: string): boolean {
-    if (currentRole === 'admin') return true;
-    if (allowedPages === null) return true;
-    return allowedPages.has(pageKey);
-  }
-
-  const filteredGroups = navGroups
-    .map((g) => ({
-      ...g,
-      items: g.items.filter((item) => canAccess(item.pageKey)),
-    }))
-    .filter((g) => g.items.length > 0);
-
-  async function handleSignOut() {
-    await signOut();
-    router.replace('/login');
-  }
 
   return (
     <aside
@@ -240,24 +163,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
       )}
 
-      {/* Role badge */}
-      {!collapsed && (
-        <div className="px-3 pt-2">
-          <div
-            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-            style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: `1px solid ${ROLE_COLORS[currentRole]}30` }}
-          >
-            <Shield size={12} style={{ color: ROLE_COLORS[currentRole] }} />
-            <span className="flex-1 text-left truncate" style={{ color: ROLE_COLORS[currentRole] }}>
-              {ROLE_LABELS[currentRole]}
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-3 px-2">
-        {filteredGroups.map((group) => (
+        {navGroups.map((group) => (
           <div key={group.group} className="mb-4">
             {!collapsed && (
               <p className="text-xs px-3 mb-1.5 tracking-widest" style={{ color: 'rgba(255,255,255,0.3)', fontWeight: 500 }}>
@@ -297,29 +205,20 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         ))}
       </nav>
 
-      {/* User + Logout */}
+      {/* User info + collapse toggle */}
       <div className="flex-shrink-0 border-t p-2" style={{ borderColor: '#243f72' }}>
         {!collapsed && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg mb-1" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 flex-shrink-0" style={{ backgroundColor: ROLE_COLORS[currentRole], color: '#1B3A6B' }}>
-              {currentUser.initials}
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-700 flex-shrink-0" style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+              AD
             </div>
             <div className="flex flex-col overflow-hidden flex-1">
-              <span className="text-xs font-600 truncate" style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>{currentUser.name}</span>
-              <span className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>{ROLE_LABELS[currentRole]}</span>
+              <span className="text-xs font-600 truncate" style={{ color: 'rgba(255,255,255,0.9)', fontWeight: 600 }}>Administrador</span>
+              <span className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>Admin</span>
             </div>
             <Bell size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />
           </div>
         )}
-        <button
-          onClick={handleSignOut}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all duration-150 hover:bg-red-500/15"
-          style={{ color: 'rgba(255,255,255,0.5)', justifyContent: collapsed ? 'center' : 'flex-start' }}
-          title={collapsed ? 'Cerrar sesión' : undefined}
-        >
-          <LogOut size={15} />
-          {!collapsed && <span>Cerrar sesión</span>}
-        </button>
         <button
           onClick={onToggle}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all duration-150 hover:bg-white/10 mt-1"
