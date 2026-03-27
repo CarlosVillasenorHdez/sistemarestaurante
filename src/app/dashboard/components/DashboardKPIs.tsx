@@ -14,6 +14,7 @@ import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
 
+
 interface KPICardProps {
   title: string;
   value: string;
