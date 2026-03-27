@@ -746,7 +746,15 @@ export default function POSClient() {
             onUpdateQty={handleUpdateQty}
             onRemoveItem={handleRemoveItem}
             onDiscountChange={setDiscount}
-            onCheckout={() => setShowPaymentModal(true)}
+            onCheckout={() => {
+              if (!kitchenSent && orderItems.length > 0) {
+                const ok = window.confirm(
+                  '⚠️ Esta orden no ha sido enviada a cocina.\n\n¿Deseas cobrar sin que la cocina la haya preparado?'
+                );
+                if (!ok) return;
+              }
+              setShowPaymentModal(true);
+            }}
             onSendToKitchen={handleSendToKitchen}
             onShowMenu={() => setView('menu')}
             onUpdateNote={handleUpdateNote}
