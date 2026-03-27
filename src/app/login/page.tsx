@@ -1,23 +1,56 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
+import { createClient } from '@/lib/supabase/client';
+
+interface WorkerOption {
+  username: string;
+  full_name: string;
+}
 
 export default function LoginPage() {
   const { signIn } = useAuth();
   const router = useRouter();
-  const [email, setEmail] = useState('admin@sistemarest.local');
+  const supabase = createClient();
+
+  const [workers, setWorkers] = useState<WorkerOption[]>([]);
+  const [selectedUsername, setSelectedUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingWorkers, setLoadingWorkers] = useState(true);
+
+  useEffect(() => {
+    const fetchWorkers = async () => {
+      const { data, error } = await supabase
+        .from('app_users')
+        .select('username, full_name')
+        .eq('is_active', true)
+        .order('full_name');
+      if (!error && data) {
+        setWorkers(data as WorkerOption[]);
+        if (data.length > 0) {
+          setSelectedUsername(data[0].username);
+        }
+      }
+      setLoadingWorkers(false);
+    };
+    fetchWorkers();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!selectedUsername) {
+      setError('Por favor selecciona un usuario.');
+      return;
+    }
     setLoading(true);
     try {
+      const email = `${selectedUsername}@sistemarest.local`;
       await signIn(email, password);
       router.replace('/dashboard');
     } catch (err: any) {
@@ -50,25 +83,45 @@ export default function LoginPage() {
           <h2 className="text-lg font-semibold text-white mb-6">Iniciar Sesión</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email */}
+            {/* Worker Dropdown */}
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                Correo electrónico
+                Usuario
               </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.07)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  // @ts-ignore
-                  '--tw-ring-color': '#f59e0b',
-                }}
-              />
+              {loadingWorkers ? (
+                <div
+                  className="w-full rounded-lg px-4 py-2.5 text-sm"
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.07)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    color: 'rgba(255,255,255,0.4)',
+                  }}
+                >
+                  Cargando usuarios...
+                </div>
+              ) : (
+                <select
+                  value={selectedUsername}
+                  onChange={(e) => setSelectedUsername(e.target.value)}
+                  required
+                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition appearance-none"
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.07)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    color: 'white',
+                  }}
+                >
+                  {workers.map((w) => (
+                    <option
+                      key={w.username}
+                      value={w.username}
+                      style={{ backgroundColor: '#162d52', color: 'white' }}
+                    >
+                      {w.full_name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Password */}
@@ -104,7 +157,7 @@ export default function LoginPage() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || loadingWorkers}
               className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-opacity disabled:opacity-60"
               style={{ backgroundColor: '#f59e0b' }}
             >
