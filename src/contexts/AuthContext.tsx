@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { getSupabaseClient, resetSupabaseClient } from '../lib/supabase/client';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { createClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -31,7 +31,6 @@ interface AuthContextValue {
   brandConfig: BrandConfig;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
-  // Admin-only helpers
   createUser: (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => Promise<void>;
   updateUserPassword: (authUserId: string, newPassword: string) => Promise<void>;
   listUsers: () => Promise<AppUser[]>;
@@ -47,103 +46,94 @@ export const useAuth = () => {
   return context;
 };
 
+function wipeAuthStorage() {
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.toLowerCase().startsWith('supabase'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* SSR */ }
+  try {
+    document.cookie.split(';').forEach((c) => {
+      const name = c.trim().split('=')[0].trim();
+      if (name.startsWith('sb-') || name.startsWith('sb_') || name.toLowerCase().startsWith('supabase')) {
+        document.cookie = name + '=; Path=/; Max-Age=0; SameSite=None; Secure';
+        document.cookie = name + '=; Path=/; Max-Age=0';
+      }
+    });
+  } catch { /* SSR */ }
+}
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser]       = useState<any>(null);
   const [session, setSession] = useState<any>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [brandConfig, setBrandConfig] = useState<BrandConfig>({
-    primaryColor: '#1B3A6B',
-    accentColor: '#f59e0b',
-    logoUrl: '',
-    restaurantName: 'SistemaRest',
-    theme: 'dark',
+    primaryColor: '#1B3A6B', accentColor: '#f59e0b',
+    logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
-  // Use singleton client to avoid creating a new GoTrueClient on every render,
-  // which would trigger repeated getSession() calls and hit the rate limit.
-  const supabase = getSupabaseClient();
+
+  const supabase = createClient();
+  const clearingRef = useRef(false);
 
   const fetchAppUser = useCallback(async (authUid: string) => {
     const { data, error } = await supabase
-      .from('app_users')
-      .select('*')
-      .eq('auth_user_id', authUid)
-      .single();
+      .from('app_users').select('*').eq('auth_user_id', authUid).single();
     if (!error && data) {
       setAppUser({
-        id: data.id,
-        authUserId: data.auth_user_id,
-        username: data.username,
-        fullName: data.full_name,
-        appRole: data.app_role as AppRole,
-        employeeId: data.employee_id,
-        isActive: data.is_active,
+        id: data.id, authUserId: data.auth_user_id, username: data.username,
+        fullName: data.full_name, appRole: data.app_role as AppRole,
+        employeeId: data.employee_id, isActive: data.is_active,
       });
     } else {
       setAppUser(null);
     }
-  }, []);
-
-  // Wipe all Supabase auth tokens from both localStorage (prefix 'sb_') and cookies.
-  // This client uses PFX='sb_' (underscore) in localStorage and also writes cookies.
-  // Called before the useEffect so the closure captures it correctly.
-  const clearAuthState = useCallback(() => {
-    // 1. Ask Supabase client to clear its own storage first (best-effort)
-    supabase.auth.signOut({ scope: 'local' }).catch(() => {});
-
-    // 2. Manually wipe localStorage — client uses 'sb_' prefix (underscore)
-    try {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.startsWith('supabase'))
-        .forEach((k) => localStorage.removeItem(k));
-    } catch { /* localStorage unavailable */ }
-
-    // 3. Wipe auth cookies (sb- and sb_ prefixes in cookie names)
-    try {
-      document.cookie.split(';').forEach((c) => {
-        const name = c.trim().split('=')[0];
-        if (name.startsWith('sb-') || name.startsWith('sb_') || name.startsWith('supabase')) {
-          document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
-        }
-      });
-    } catch { /* document unavailable (SSR) */ }
-
-    setUser(null);
-    setSession(null);
-    setAppUser(null);
-    // Reset the singleton so the next login creates a fresh client
-    // (avoids the old GoTrueClient retrying the invalid token)
-    resetSupabaseClient();
   }, [supabase]);
 
+  const clearAuthState = useCallback(() => {
+    if (clearingRef.current) return;
+    clearingRef.current = true;
+    try {
+      wipeAuthStorage();
+      setUser(null);
+      setSession(null);
+      setAppUser(null);
+    } finally {
+      clearingRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
-        // Refresh token invalid or expired — wipe stale tokens and go to login
-        clearAuthState();
+        wipeAuthStorage();
         setLoading(false);
         return;
       }
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchAppUser(session.user.id).finally(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
+      if (!data.session) { setLoading(false); return; }
+      setSession(data.session);
+      setUser(data.session.user);
+      fetchAppUser(data.session.user.id).finally(() => setLoading(false));
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // On any sign-out path (explicit, token expiry, remote revoke) wipe stale tokens
-      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (clearingRef.current) return;
+
+      if (event === 'SIGNED_OUT') {
         clearAuthState();
         setLoading(false);
         return;
       }
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchAppUser(session.user.id).finally(() => setLoading(false));
+      if (event === 'TOKEN_REFRESHED' && !newSession) {
+        clearAuthState();
+        setLoading(false);
+        return;
+      }
+
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+      if (newSession?.user) {
+        fetchAppUser(newSession.user.id).finally(() => setLoading(false));
       } else {
         setAppUser(null);
         setLoading(false);
@@ -151,24 +141,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchAppUser, clearAuthState]);
+  }, [supabase, fetchAppUser, clearAuthState]);
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
-
-  // Load brand config from system_config (with sessionStorage cache)
   useEffect(() => {
     const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
     if (cached) {
-      try {
-        setBrandConfig(JSON.parse(cached));
-        return;
-      } catch {
-        sessionStorage.removeItem(BRAND_CACHE_KEY);
-      }
+      try { setBrandConfig(JSON.parse(cached)); return; }
+      catch { sessionStorage.removeItem(BRAND_CACHE_KEY); }
     }
-
-    supabase
-      .from('system_config')
+    supabase.from('system_config')
       .select('config_key, config_value')
       .in('config_key', ['brand_primary_color', 'brand_accent_color', 'brand_logo_url', 'restaurant_name', 'brand_theme'])
       .then(({ data }) => {
@@ -176,16 +158,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const map: Record<string, string> = {};
         data.forEach((r: any) => { map[r.config_key] = r.config_value; });
         const config: BrandConfig = {
-          primaryColor: map.brand_primary_color || '#1B3A6B',
-          accentColor: map.brand_accent_color || '#f59e0b',
-          logoUrl: map.brand_logo_url || '',
-          restaurantName: map.restaurant_name || 'SistemaRest',
-          theme: (map.brand_theme as 'dark' | 'light') || 'dark',
+          primaryColor:   map.brand_primary_color || '#1B3A6B',
+          accentColor:    map.brand_accent_color  || '#f59e0b',
+          logoUrl:        map.brand_logo_url      || '',
+          restaurantName: map.restaurant_name     || 'SistemaRest',
+          theme:          (map.brand_theme as 'dark' | 'light') || 'dark',
         };
         setBrandConfig(config);
         sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
-  }, []);
+  }, [supabase]);
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -194,30 +176,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
-    // clearAuthState calls signOut({scope:'local'}) internally + wipes storage/cookies.
-    // We also attempt a global signOut to revoke the token server-side.
+    clearingRef.current = true;
     try {
-      await supabase.auth.signOut({ scope: 'global' });
-    } catch { /* token may already be invalid — ignore */ }
-    clearAuthState();
+      await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
+      wipeAuthStorage();
+      setUser(null);
+      setSession(null);
+      setAppUser(null);
+    } finally {
+      clearingRef.current = false;
+    }
   };
 
-  // Admin: create a new system user via Edge Function (uses Service Role Key server-side)
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
     const { data, error } = await supabase.functions.invoke('create-app-user', {
-      body: {
-        username: username.trim().toLowerCase(),
-        password,
-        fullName,
-        role,
-        employeeId: employeeId || null,
-      },
+      body: { username: username.trim().toLowerCase(), password, fullName, role, employeeId: employeeId || null },
     });
     if (error) throw new Error(error.message || 'Error al crear usuario');
     if (data?.error) throw new Error(data.error);
   };
 
-  // Admin: update password for a user (uses Supabase admin)
   const updateUserPassword = async (authUserId: string, newPassword: string) => {
     const { error } = await supabase.functions.invoke('update-user-password', {
       body: { auth_user_id: authUserId, new_password: newPassword },
@@ -229,13 +207,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const { data, error } = await supabase.from('app_users').select('*').order('full_name');
     if (error) throw error;
     return (data || []).map((u: any) => ({
-      id: u.id,
-      authUserId: u.auth_user_id,
-      username: u.username,
-      fullName: u.full_name,
-      appRole: u.app_role as AppRole,
-      employeeId: u.employee_id,
-      isActive: u.is_active,
+      id: u.id, authUserId: u.auth_user_id, username: u.username,
+      fullName: u.full_name, appRole: u.app_role as AppRole,
+      employeeId: u.employee_id, isActive: u.is_active,
     }));
   };
 
