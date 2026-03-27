@@ -84,21 +84,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  // Wipe all Supabase auth keys from localStorage.
-  // Declared as useCallback before the useEffect so the closure captures it correctly.
+  // Wipe all Supabase auth tokens from both localStorage (prefix 'sb_') and cookies.
+  // This client uses PFX='sb_' (underscore) in localStorage and also writes cookies.
+  // Called before the useEffect so the closure captures it correctly.
   const clearAuthState = useCallback(() => {
+    // 1. Ask Supabase client to clear its own storage first (best-effort)
+    supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+
+    // 2. Manually wipe localStorage — client uses 'sb_' prefix (underscore)
     try {
-      const keysToRemove = Object.keys(localStorage).filter(
-        (k) => k.startsWith('sb-') || k.startsWith('supabase')
-      );
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-    } catch {
-      // localStorage may be unavailable in some environments — fail silently
-    }
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.startsWith('supabase'))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch { /* localStorage unavailable */ }
+
+    // 3. Wipe auth cookies (sb- and sb_ prefixes in cookie names)
+    try {
+      document.cookie.split(';').forEach((c) => {
+        const name = c.trim().split('=')[0];
+        if (name.startsWith('sb-') || name.startsWith('sb_') || name.startsWith('supabase')) {
+          document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+        }
+      });
+    } catch { /* document unavailable (SSR) */ }
+
     setUser(null);
     setSession(null);
     setAppUser(null);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }, error }) => {
@@ -178,13 +191,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
+    // clearAuthState calls signOut({scope:'local'}) internally + wipes storage/cookies.
+    // We also attempt a global signOut to revoke the token server-side.
     try {
-      await supabase.auth.signOut();
-    } catch {
-      // signOut can fail when the token is already invalid — clear locally anyway
-    } finally {
-      clearAuthState();
-    }
+      await supabase.auth.signOut({ scope: 'global' });
+    } catch { /* token may already be invalid — ignore */ }
+    clearAuthState();
   };
 
   // Admin: create a new system user via Edge Function (uses Service Role Key server-side)
