@@ -42,26 +42,29 @@ const getToken = () =>
   (canUseCookies() ? fromCookies() : fromStorage())
     .find((c) => c.name.includes('auth-token'))?.value ?? null;
 
-/** Clear all Supabase session tokens from both storage mechanisms */
-export const clearSupabaseSession = () => {
+// Wipe all Supabase auth tokens from localStorage and cookies.
+// The client uses PFX='sb_' (underscore) in localStorage.
+// Called in login before signIn and in AuthContext on token errors.
+export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
-  // Clear from localStorage
   try {
-    const keysToRemove = Object.keys(localStorage).filter(
-      (k) => k.startsWith(PFX) || k.startsWith('supabase') || k.includes('auth-token') || k.includes('refresh_token')
-    );
-    keysToRemove.forEach((k) => localStorage.removeItem(k));
-  } catch {}
-  // Clear from cookies
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.toLowerCase().startsWith('supabase'))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch { /* SSR */ }
   try {
-    fromCookies()
-      .filter((c) => c.name.includes('auth-token') || c.name.includes('supabase') || c.name.includes('refresh'))
-      .forEach((c) => {
-        document.cookie = `${c.name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
-        document.cookie = `${c.name}=; Path=/; Max-Age=0`;
-      });
-  } catch {}
-};
+    document.cookie.split(';').forEach((c) => {
+      const name = c.trim().split('=')[0].trim();
+      if (name.startsWith('sb-') || name.startsWith('sb_') || name.toLowerCase().startsWith('supabase')) {
+        document.cookie = name + '=; Path=/; Max-Age=0; SameSite=None; Secure';
+        document.cookie = name + '=; Path=/; Max-Age=0';
+      }
+    });
+  } catch { /* SSR */ }
+}
+
+// Alias kept for any existing references
+export const clearSupabaseSession = wipeAuthStorage;
 
 if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   (window as any).__sb_patched__ = true;
@@ -78,7 +81,7 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
-export function createClient() {
+function createNewClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -105,4 +108,13 @@ export function createClient() {
       },
     }
   );
+}
+
+// Singleton — one GoTrueClient for the entire app.
+// Multiple instances each auto-refresh independently, exhausting the rate limit.
+let _client: ReturnType<typeof createNewClient> | null = null;
+
+export function createClient() {
+  if (!_client) _client = createNewClient();
+  return _client;
 }
