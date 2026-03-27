@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
@@ -14,7 +14,8 @@ interface WorkerOption {
 export default function LoginPage() {
   const { signIn } = useAuth();
   const router = useRouter();
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [selectedUsername, setSelectedUsername] = useState('');
@@ -23,22 +24,27 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
 
+  // Wipe stale tokens the moment the login page mounts.
+  // This runs before any Supabase auth call and prevents the GoTrueClient
+  // from trying to refresh an invalid/deleted token.
   useEffect(() => {
-    const fetchWorkers = async () => {
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('username, full_name')
-        .eq('is_active', true)
-        .order('full_name');
-      if (!error && data) {
-        setWorkers(data as WorkerOption[]);
-        if (data.length > 0) {
-          setSelectedUsername(data[0].username);
+    wipeAuthStorage();
+  }, []);
+
+  useEffect(() => {
+    supabase
+      .from('app_users')
+      .select('username, full_name')
+      .eq('is_active', true)
+      .order('full_name')
+      .then(({ data, error: err }) => {
+        if (!err && data) {
+          setWorkers(data as WorkerOption[]);
+          if (data.length > 0) setSelectedUsername(data[0].username);
         }
-      }
-      setLoadingWorkers(false);
-    };
-    fetchWorkers();
+        setLoadingWorkers(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -50,8 +56,6 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      // Wipe stale tokens before sign-in to prevent rate-limit loops
-      wipeAuthStorage();
       const email = `${selectedUsername}@sistemarest.local`;
       await signIn(email, password);
       router.replace('/dashboard');
@@ -68,7 +72,6 @@ export default function LoginPage() {
       style={{ backgroundColor: '#0f1e38' }}
     >
       <div className="w-full max-w-md">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <AppLogo className="h-14 w-auto mb-4" />
           <h1 className="text-2xl font-bold text-white">SistemaRest</h1>
@@ -77,7 +80,6 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {/* Card */}
         <div
           className="rounded-2xl p-8 shadow-2xl"
           style={{ backgroundColor: '#162d52', border: '1px solid rgba(255,255,255,0.08)' }}
@@ -85,40 +87,22 @@ export default function LoginPage() {
           <h2 className="text-lg font-semibold text-white mb-6">Iniciar Sesión</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Worker Dropdown */}
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
                 Usuario
               </label>
               {loadingWorkers ? (
-                <div
-                  className="w-full rounded-lg px-4 py-2.5 text-sm"
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.07)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    color: 'rgba(255,255,255,0.4)',
-                  }}
-                >
+                <div className="w-full rounded-lg px-4 py-2.5 text-sm"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)' }}>
                   Cargando usuarios...
                 </div>
               ) : (
-                <select
-                  value={selectedUsername}
-                  onChange={(e) => setSelectedUsername(e.target.value)}
-                  required
-                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition appearance-none"
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.07)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    color: 'white',
-                  }}
-                >
+                <select value={selectedUsername} onChange={(e) => setSelectedUsername(e.target.value)} required
+                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none appearance-none"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}>
                   {workers.map((w) => (
-                    <option
-                      key={w.username}
-                      value={w.username}
-                      style={{ backgroundColor: '#162d52', color: 'white' }}
-                    >
+                    <option key={w.username} value={w.username}
+                      style={{ backgroundColor: '#162d52', color: 'white' }}>
                       {w.full_name}
                     </option>
                   ))}
@@ -126,43 +110,27 @@ export default function LoginPage() {
               )}
             </div>
 
-            {/* Password */}
             <div>
               <label className="block text-sm font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
                 Contraseña
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="current-password"
-                placeholder="••••••••"
-                className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition"
-                style={{
-                  backgroundColor: 'rgba(255,255,255,0.07)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                }}
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                required autoComplete="current-password" placeholder="••••••••"
+                className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none"
+                style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
               />
             </div>
 
-            {/* Error */}
             {error && (
-              <div
-                className="rounded-lg px-4 py-3 text-sm"
-                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}
-              >
+              <div className="rounded-lg px-4 py-3 text-sm"
+                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
                 {error}
               </div>
             )}
 
-            {/* Submit */}
-            <button
-              type="submit"
-              disabled={loading || loadingWorkers}
+            <button type="submit" disabled={loading || loadingWorkers}
               className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-opacity disabled:opacity-60"
-              style={{ backgroundColor: '#f59e0b' }}
-            >
+              style={{ backgroundColor: '#f59e0b' }}>
               {loading ? 'Ingresando...' : 'Ingresar'}
             </button>
           </form>

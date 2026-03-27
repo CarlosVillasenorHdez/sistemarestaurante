@@ -65,32 +65,40 @@ export function wipeAuthStorage() {
 export const clearSupabaseSession = wipeAuthStorage;
 
 // ─── Token validation ─────────────────────────────────────────────────────────
-// Check if the stored access token is expired WITHOUT making a network request.
-// If it's expired, wipe storage immediately before the GoTrueClient even starts,
-// preventing it from attempting a refresh that would hit the rate limit.
+// Inspect stored session WITHOUT making any network request.
+// Returns true if the token should be wiped before creating the client.
+// We wipe if:
+//   1. The access token is expired (exp < now), OR
+//   2. The refresh_token field is empty/missing (token was deleted from DB via SQL)
+//      — in this case the GoTrueClient would immediately try to refresh and fail.
 
-function isStoredTokenExpired(): boolean {
+function shouldWipeTokens(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    // The access token is a JWT — check its exp claim
     const items = canUseCookies() ? fromCookies() : fromStorage();
     const tokenItem = items.find((c) => c.name.includes('auth-token'));
-    if (!tokenItem?.value) return false;
+    if (!tokenItem?.value) return false; // no tokens — nothing to wipe
 
     let parsed: any;
-    try { parsed = JSON.parse(tokenItem.value); } catch { return false; }
+    try { parsed = JSON.parse(tokenItem.value); } catch { return true; } // corrupt — wipe
 
+    // If refresh_token is missing or empty, the token is unusable.
+    // The GoTrueClient will try to call /token?grant_type=refresh_token and get 400.
+    if (!parsed?.refresh_token) return true;
+
+    // If access token is expired, wipe (GoTrueClient would try to refresh it).
     const accessToken = parsed?.access_token;
-    if (!accessToken) return false;
+    if (accessToken) {
+      const parts = accessToken.split('.');
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (Date.now() > (payload.exp ?? 0) * 1000) return true;
+        } catch { return true; }
+      }
+    }
 
-    // Decode JWT payload (base64url middle segment)
-    const parts = accessToken.split('.');
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-
-    // exp is in seconds; add 30s buffer
-    const expiredAt = (payload.exp ?? 0) * 1000;
-    return Date.now() > expiredAt - 30000;
+    return false;
   } catch {
     return false;
   }
@@ -121,11 +129,7 @@ function createNewClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        // autoRefreshToken DISABLED — prevents the GoTrueClient from making
-        // hundreds of /token requests when the refresh_token was deleted from
-        // Supabase (DB reset, project switch, etc.).
-        // Tokens refresh on demand when making authenticated requests.
-        autoRefreshToken: false,
+        autoRefreshToken: false,   // disabled at boot; re-enabled after successful login
         persistSession: true,
         detectSessionInUrl: false,
       },
@@ -154,15 +158,13 @@ function createNewClient() {
 }
 
 // Singleton — one GoTrueClient for the entire app.
-// Before creating it, check if the stored token is already expired.
-// If it is, wipe storage so the client starts clean (no refresh attempt).
+// Pre-flight check: if tokens are stale/broken, wipe storage BEFORE creating
+// the client so it starts clean and makes zero network requests on boot.
 let _client: ReturnType<typeof createNewClient> | null = null;
 
 export function createClient() {
   if (!_client) {
-    // Pre-flight: if the stored token is expired, clear storage NOW
-    // before the GoTrueClient initializes and tries to refresh it.
-    if (isStoredTokenExpired()) {
+    if (shouldWipeTokens()) {
       wipeAuthStorage();
     }
     _client = createNewClient();
