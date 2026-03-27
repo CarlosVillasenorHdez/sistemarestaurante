@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
+import { clearSupabaseSession } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -83,17 +84,64 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchAppUser(session.user.id).finally(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
-    });
+    const handleInvalidToken = async () => {
+      clearSupabaseSession();
+      await supabase.auth.signOut({ scope: 'local' });
+      setSession(null);
+      setUser(null);
+      setAppUser(null);
+      setLoading(false);
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const initSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          const msg = (error as any).message || '';
+          if (
+            msg.includes('Refresh Token Not Found') ||
+            msg.includes('Invalid Refresh Token') ||
+            msg.includes('refresh_token_not_found')
+          ) {
+            await handleInvalidToken();
+            return;
+          }
+        }
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchAppUser(session.user.id).finally(() => setLoading(false));
+        } else {
+          setLoading(false);
+        }
+      } catch (err: any) {
+        const msg = (err as any)?.message || '';
+        if (
+          msg.includes('Refresh Token Not Found') ||
+          msg.includes('Invalid Refresh Token') ||
+          msg.includes('refresh_token_not_found')
+        ) {
+          await handleInvalidToken();
+        } else {
+          setLoading(false);
+        }
+      }
+    };
+
+    initSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (_event === 'TOKEN_REFRESHED' && !session) {
+        await handleInvalidToken();
+        return;
+      }
+      if (_event === 'SIGNED_OUT') {
+        setSession(null);
+        setUser(null);
+        setAppUser(null);
+        setLoading(false);
+        return;
+      }
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
