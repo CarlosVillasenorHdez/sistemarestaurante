@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { createClient, wipeAuthStorage } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 
 interface WorkerOption {
   username: string;
@@ -23,13 +23,6 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
-
-  // Wipe stale tokens the moment the login page mounts.
-  // This runs before any Supabase auth call and prevents the GoTrueClient
-  // from trying to refresh an invalid/deleted token.
-  useEffect(() => {
-    wipeAuthStorage();
-  }, []);
 
   useEffect(() => {
     supabase
@@ -50,14 +43,10 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!selectedUsername) {
-      setError('Por favor selecciona un usuario.');
-      return;
-    }
+    if (!selectedUsername) { setError('Por favor selecciona un usuario.'); return; }
     setLoading(true);
     try {
-      const email = `${selectedUsername}@sistemarest.local`;
-      await signIn(email, password);
+      await signIn(`${selectedUsername}@sistemarest.local`, password);
       router.replace('/dashboard');
     } catch (err: any) {
       setError(err?.message || 'Credenciales incorrectas. Intenta de nuevo.');
@@ -67,10 +56,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: '#0f1e38' }}
-    >
+    <div className="min-h-screen flex items-center justify-center px-4"
+      style={{ backgroundColor: '#0f1e38' }}>
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
           <AppLogo className="h-14 w-auto mb-4" />
@@ -80,26 +67,25 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <div
-          className="rounded-2xl p-8 shadow-2xl"
-          style={{ backgroundColor: '#162d52', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
+        <div className="rounded-2xl p-8 shadow-2xl"
+          style={{ backgroundColor: '#162d52', border: '1px solid rgba(255,255,255,0.08)' }}>
           <h2 className="text-lg font-semibold text-white mb-6">Iniciar Sesión</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                Usuario
-              </label>
+              <label className="block text-sm font-medium mb-1.5"
+                style={{ color: 'rgba(255,255,255,0.7)' }}>Usuario</label>
               {loadingWorkers ? (
                 <div className="w-full rounded-lg px-4 py-2.5 text-sm"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)' }}>
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)',
+                    border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.4)' }}>
                   Cargando usuarios...
                 </div>
               ) : (
-                <select value={selectedUsername} onChange={(e) => setSelectedUsername(e.target.value)} required
-                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none appearance-none"
-                  style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}>
+                <select value={selectedUsername} onChange={(e) => setSelectedUsername(e.target.value)}
+                  required className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none appearance-none"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.07)',
+                    border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}>
                   {workers.map((w) => (
                     <option key={w.username} value={w.username}
                       style={{ backgroundColor: '#162d52', color: 'white' }}>
@@ -111,19 +97,20 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.7)' }}>
-                Contraseña
-              </label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              <label className="block text-sm font-medium mb-1.5"
+                style={{ color: 'rgba(255,255,255,0.7)' }}>Contraseña</label>
+              <input type="password" value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required autoComplete="current-password" placeholder="••••••••"
                 className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none"
-                style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
-              />
+                style={{ backgroundColor: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.12)' }} />
             </div>
 
             {error && (
               <div className="rounded-lg px-4 py-3 text-sm"
-                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.3)' }}>
+                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#fca5a5',
+                  border: '1px solid rgba(239,68,68,0.3)' }}>
                 {error}
               </div>
             )}
