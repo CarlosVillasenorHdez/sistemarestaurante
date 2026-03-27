@@ -85,3 +85,15 @@ export function createClient() {
     }
   );
 }
+
+// Singleton instance — reuse the same client across the entire app to avoid
+// creating multiple GoTrueClient instances which trigger repeated auth calls
+// and hit Supabase's request rate limit.
+let _supabaseClient: ReturnType<typeof createClient> | null = null;
+
+export function getSupabaseClient() {
+  if (!_supabaseClient) {
+    _supabaseClient = createClient();
+  }
+  return _supabaseClient;
+}

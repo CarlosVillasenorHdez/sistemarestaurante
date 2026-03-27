@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { createClient } from '../lib/supabase/client';
+import { getSupabaseClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -59,7 +59,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     restaurantName: 'SistemaRest',
     theme: 'dark',
   });
-  const supabase = createClient();
+  // Use singleton client to avoid creating a new GoTrueClient on every render,
+  // which would trigger repeated getSession() calls and hit the rate limit.
+  const supabase = getSupabaseClient();
 
   const fetchAppUser = useCallback(async (authUid: string) => {
     const { data, error } = await supabase
@@ -93,7 +95,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // On any sign-out path (explicit, token expiry, remote revoke) wipe stale tokens
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
+        clearAuthState();
+        setLoading(false);
+        return;
+      }
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -141,6 +149,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
   }, []);
 
+  // Wipe all Supabase auth keys from localStorage to prevent stale token loops.
+  // Called on explicit signOut AND on SIGNED_OUT events (token expiry, remote revoke).
+  const clearAuthState = () => {
+    try {
+      const keysToRemove = Object.keys(localStorage).filter(
+        (k) => k.startsWith('sb-') || k.startsWith('supabase')
+      );
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // localStorage may be unavailable in some environments — fail silently
+    }
+    setUser(null);
+    setSession(null);
+    setAppUser(null);
+  };
+
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -148,9 +172,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setAppUser(null);
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // signOut can fail when the token is already invalid — clear locally anyway
+    } finally {
+      clearAuthState();
+    }
   };
 
   // Admin: create a new system user via Edge Function (uses Service Role Key server-side)
