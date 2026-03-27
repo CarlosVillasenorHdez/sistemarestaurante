@@ -83,7 +83,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     clearingRef.current = true;
     try {
       wipeAuthStorage();
-      resetSupabaseClient();
+      // Do NOT reset the singleton here — the active useEffect still holds
+      // a reference to this client and its subscription. Resetting it would
+      // create a new client on the next render while the old subscription
+      // is still alive, causing duplicate listeners and repeated token errors.
       setUser(null);
       setSession(null);
       setAppUser(null);
