@@ -35,6 +35,8 @@ export default function MeseroMobileView() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'tables' | 'menu'>('tables');
   const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
+  const [readyOrders, setReadyOrders] = useState<string[]>([]);
+  const prevReadyRef = React.useRef<string[]>([]);
   const [branchName, setBranchName] = useState('Sucursal Principal');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
 
@@ -68,6 +70,40 @@ export default function MeseroMobileView() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  const playReadyChime = React.useCallback(() => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const notes = [523.25, 659.25, 783.99];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, ctx.currentTime + i * 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.4);
+        osc.start(ctx.currentTime + i * 0.15);
+        osc.stop(ctx.currentTime + i * 0.15 + 0.4);
+      });
+    } catch { /* audio not available */ }
+  }, []);
+
+  const checkReadyOrders = React.useCallback(async () => {
+    const { data } = await supabase
+      .from('orders')
+      .select('mesa')
+      .eq('kitchen_status', 'lista')
+      .in('status', ['abierta', 'lista', 'preparacion']);
+    const mesaNames = (data || []).map((o: any) => o.mesa as string);
+    setReadyOrders(mesaNames);
+    const prev = prevReadyRef.current;
+    const newReady = mesaNames.filter(m => !prev.includes(m));
+    if (newReady.length > 0) playReadyChime();
+    prevReadyRef.current = mesaNames;
+  }, [supabase, playReadyChime]);
+
+  useEffect(() => { checkReadyOrders(); }, [checkReadyOrders]);
+
   // Realtime: refresh when table status changes from another terminal
   useEffect(() => {
     let retryTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -81,6 +117,9 @@ export default function MeseroMobileView() {
         .channel(`mesero-tables-${Date.now()}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
           loadData();
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+          checkReadyOrders();
         })
         .subscribe((status) => {
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -275,6 +314,12 @@ export default function MeseroMobileView() {
                 }`}>
                   {table.status === 'libre' ? 'Libre' : table.status === 'ocupada' ? 'Ocupada' : 'Espera'}
                 </span>
+                {readyOrders.includes(table.name) && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+                    style={{ backgroundColor: '#bbf7d0', color: '#15803d' }}>
+                    ✓ Lista
+                  </span>
+                )}
               </button>
             ))}
           </div>

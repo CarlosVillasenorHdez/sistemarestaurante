@@ -5,6 +5,7 @@ import SalesChart from './components/SalesChart';
 import RecentOrders from './components/RecentOrders';
 import DashboardQuickActions from './components/DashboardQuickActions';
 import AlertsPanel from './components/AlertsPanel';
+import LiveOperations from './components/LiveOperations';
 
 export default function DashboardPage() {
   return (
@@ -16,6 +17,9 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-6">
         {/* Quick actions */}
         <DashboardQuickActions />
+
+        {/* Live operations */}
+        <LiveOperations />
 
         {/* KPI Bento Grid */}
         <DashboardKPIs />
