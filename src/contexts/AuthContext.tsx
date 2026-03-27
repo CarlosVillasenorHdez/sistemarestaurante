@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { createClient } from '../lib/supabase/client';
+import { createClient, wipeAuthStorage, resetSupabaseClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -46,23 +46,6 @@ export const useAuth = () => {
   return context;
 };
 
-function wipeAuthStorage() {
-  try {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.toLowerCase().startsWith('supabase'))
-      .forEach((k) => localStorage.removeItem(k));
-  } catch { /* SSR */ }
-  try {
-    document.cookie.split(';').forEach((c) => {
-      const name = c.trim().split('=')[0].trim();
-      if (name.startsWith('sb-') || name.startsWith('sb_') || name.toLowerCase().startsWith('supabase')) {
-        document.cookie = name + '=; Path=/; Max-Age=0; SameSite=None; Secure';
-        document.cookie = name + '=; Path=/; Max-Age=0';
-      }
-    });
-  } catch { /* SSR */ }
-}
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser]       = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -74,6 +57,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
 
   const supabase = createClient();
+
+  // Guard: prevents the SIGNED_OUT listener from re-entering clearAuthState
+  // when WE triggered the sign-out.
   const clearingRef = useRef(false);
 
   const fetchAppUser = useCallback(async (authUid: string) => {
@@ -90,11 +76,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [supabase]);
 
+  // Clears React state and storage without calling supabase.auth.signOut(),
+  // which would fire SIGNED_OUT and cause an infinite loop.
   const clearAuthState = useCallback(() => {
     if (clearingRef.current) return;
     clearingRef.current = true;
     try {
       wipeAuthStorage();
+      resetSupabaseClient();
       setUser(null);
       setSession(null);
       setAppUser(null);
@@ -106,24 +95,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
-        wipeAuthStorage();
+        // Invalid / expired refresh token — wipe silently, show login
+        clearAuthState();
         setLoading(false);
         return;
       }
-      if (!data.session) { setLoading(false); return; }
+      if (!data.session) {
+        setLoading(false);
+        return;
+      }
       setSession(data.session);
       setUser(data.session.user);
       fetchAppUser(data.session.user.id).finally(() => setLoading(false));
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (clearingRef.current) return;
+      if (clearingRef.current) return; // we triggered this — ignore
 
       if (event === 'SIGNED_OUT') {
         clearAuthState();
         setLoading(false);
         return;
       }
+
       if (event === 'TOKEN_REFRESHED' && !newSession) {
         clearAuthState();
         setLoading(false);
@@ -180,6 +174,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
       wipeAuthStorage();
+      resetSupabaseClient();
       setUser(null);
       setSession(null);
       setAppUser(null);
