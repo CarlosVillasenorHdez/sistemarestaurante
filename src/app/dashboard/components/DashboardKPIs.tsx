@@ -192,7 +192,13 @@ export default function DashboardKPIs() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => { load(); })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    // Fallback polling every 60s in case Realtime disconnects
+    const interval = setInterval(() => { load(); }, 60000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
   }, []);
 
   return (
