@@ -1,5 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr';
 
+// ─── Cookie helpers ───────────────────────────────────────────────────────────
+
 const PFX = 'sb_';
 
 const canUseCookies = (() => {
@@ -38,79 +40,97 @@ const setCookie = (name: string, value: string, options?: any) => {
   document.cookie = s;
 };
 
-const getToken = () =>
-  (canUseCookies() ? fromCookies() : fromStorage())
-    .find((c) => c.name.includes('auth-token'))?.value ?? null;
+// ─── Auth Storage Wipe ────────────────────────────────────────────────────────
 
-if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
-  (window as any).__sb_patched__ = true;
-  const orig = window.fetch.bind(window);
-  window.fetch = (input, init) => {
-    const token = getToken();
-    const url = typeof input === 'string' ? input
-      : input instanceof URL ? input.href
-      : (input as Request).url;
-    if (token && (url.startsWith('/') || url.startsWith(window.location.origin))) {
-      init = { ...(init || {}), headers: { ...(init?.headers || {}), 'x-sb-token': token } };
-    }
-    return orig(input, init);
-  };
-}
-
-// Wipe all auth tokens from storage — called before creating a fresh client
-// so stale tokens don't trigger refresh attempts.
+/**
+ * Wipe ALL Supabase auth tokens from localStorage and cookies.
+ * Called before sign-in and when an invalid refresh token error is detected.
+ */
 export function wipeAuthStorage() {
+  if (typeof window === 'undefined') return;
+
+  // Wipe localStorage — match any key that looks like a Supabase auth key
   try {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.toLowerCase().startsWith('supabase'))
-      .forEach((k) => localStorage.removeItem(k));
-  } catch { /* SSR */ }
+    const keysToRemove = Object.keys(localStorage).filter((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower.startsWith('sb-') ||
+        lower.startsWith('sb_') ||
+        lower.startsWith('supabase') ||
+        lower.includes('auth-token') ||
+        lower.includes('auth_token')
+      );
+    });
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch { /* SSR / private browsing */ }
+
+  // Wipe cookies
   try {
     document.cookie.split(';').forEach((c) => {
       const name = c.trim().split('=')[0].trim();
-      if (name.startsWith('sb-') || name.startsWith('sb_') || name.toLowerCase().startsWith('supabase')) {
-        document.cookie = name + '=; Path=/; Max-Age=0; SameSite=None; Secure';
-        document.cookie = name + '=; Path=/; Max-Age=0';
+      if (
+        name.startsWith('sb-') ||
+        name.startsWith('sb_') ||
+        name.toLowerCase().startsWith('supabase')
+      ) {
+        document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+        document.cookie = `${name}=; Path=/; Max-Age=0`;
       }
     });
   } catch { /* SSR */ }
 }
 
 /**
- * Proactively check stored session tokens for expiry or missing refresh token.
- * If the stored session has no refresh_token or is clearly expired, wipe it
- * before the Supabase client initializes — preventing the auto-refresh timer
- * from firing on bad tokens and logging AuthApiError to the console.
+ * Check if any stored Supabase session token is stale/expired/missing refresh_token.
+ * If so, wipe everything. This prevents the GoTrue auto-refresh timer from
+ * firing on bad tokens and logging AuthApiError to the console.
+ *
+ * Strategy: parse the session JSON and check expires_at + refresh_token.
+ * If parsing fails or token is bad → wipe. If no session keys exist → skip.
  */
 function wipeStaleTokensIfNeeded() {
   if (typeof window === 'undefined') return;
+
   try {
-    // Cast a wide net: any localStorage key that might hold a Supabase session
-    const sessionKeys = Object.keys(localStorage).filter((k) => {
+    const allKeys = Object.keys(localStorage);
+
+    // Find any key that could hold a Supabase session
+    const sessionKeys = allKeys.filter((k) => {
       const lower = k.toLowerCase();
       return (
+        lower.startsWith('sb-') ||
+        lower.startsWith('sb_') ||
+        lower.startsWith('supabase') ||
         lower.includes('auth-token') ||
-        lower.includes('auth_token') ||
-        lower.includes('supabase') ||
-        (lower.startsWith('sb-') && lower.includes('token')) ||
-        (lower.startsWith('sb_') && lower.includes('token'))
+        lower.includes('auth_token')
       );
     });
 
-    if (sessionKeys.length === 0) return; // nothing stored — no stale tokens
+    if (sessionKeys.length === 0) return; // No stored session — nothing to wipe
 
+    const nowSec = Math.floor(Date.now() / 1000);
     let shouldWipe = false;
+
     for (const key of sessionKeys) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
+
       try {
         const parsed = JSON.parse(raw);
+        // @supabase/ssr stores: { access_token, refresh_token, expires_at, ... }
+        // or nested under currentSession
         const session = parsed?.currentSession ?? parsed;
-        const hasRefreshToken = !!session?.refresh_token;
+
+        const hasRefreshToken = !!(session?.refresh_token);
         const expiresAt: number | undefined = session?.expires_at;
-        const nowSec = Math.floor(Date.now() / 1000);
-        // Wipe if no refresh token or token expired more than 60s ago
-        if (!hasRefreshToken || (expiresAt !== undefined && expiresAt < nowSec - 60)) {
+
+        if (!hasRefreshToken) {
+          shouldWipe = true;
+          break;
+        }
+
+        // Expired more than 60 seconds ago → stale
+        if (expiresAt !== undefined && expiresAt < nowSec - 60) {
           shouldWipe = true;
           break;
         }
@@ -127,9 +147,11 @@ function wipeStaleTokensIfNeeded() {
   } catch { /* ignore */ }
 }
 
+// ─── Singleton Client ─────────────────────────────────────────────────────────
+
 function createNewClient() {
-  // Wipe stale/invalid tokens before initializing so the auto-refresh
-  // timer never attempts to refresh a token that doesn't exist.
+  // Always wipe stale tokens before creating the client so the
+  // GoTrue auto-refresh timer never fires on invalid tokens.
   wipeStaleTokensIfNeeded();
 
   return createBrowserClient(
@@ -147,14 +169,16 @@ function createNewClient() {
           if (typeof document === 'undefined') return;
           if (canUseCookies()) {
             cookiesToSet.forEach(({ name, value, options }) =>
-              value ? setCookie(name, value, options)
-                    : (document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`)
+              value
+                ? setCookie(name, value, options)
+                : (document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=None; Secure`)
             );
           } else {
             cookiesToSet.forEach(({ name, value, options }) => {
               try {
-                value ? localStorage.setItem(`${PFX}${name}`, value)
-                      : localStorage.removeItem(`${PFX}${name}`);
+                value
+                  ? localStorage.setItem(`${PFX}${name}`, value)
+                  : localStorage.removeItem(`${PFX}${name}`);
               } catch {}
               if (value) setCookie(name, value, options);
             });
@@ -165,8 +189,8 @@ function createNewClient() {
   );
 }
 
-// Singleton — one GoTrueClient for the entire app.
-// Multiple instances each try to refresh tokens independently, exhausting the rate limit.
+// One GoTrueClient for the entire app lifetime.
+// Multiple instances each try to refresh tokens independently → rate limit exhaustion.
 let _client: ReturnType<typeof createNewClient> | null = null;
 
 export function createClient() {
@@ -178,7 +202,7 @@ export function getSupabaseClient() {
   return createClient();
 }
 
-// Reset singleton after sign-out so the next sign-in starts fresh.
+// Reset singleton — call only during explicit sign-out.
 export function resetSupabaseClient() {
   _client = null;
 }

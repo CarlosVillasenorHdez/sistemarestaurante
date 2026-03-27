@@ -56,37 +56,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
 
-  // Track whether stale tokens were already wiped so we only do it once
-  const tokenWipedRef = useRef(false);
+  // Prevent concurrent clearing
   const clearingRef = useRef(false);
-
-  const getSupabase = useCallback(() => createClient(), []);
+  // Track if we already did a wipe this session to prevent infinite loops
+  const wipedRef = useRef(false);
 
   const fetchAppUser = useCallback(async (authUid: string) => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const { data, error } = await supabase
       .from('app_users').select('*').eq('auth_user_id', authUid).single();
     if (!error && data) {
       setAppUser({
-        id: data.id, authUserId: data.auth_user_id, username: data.username,
-        fullName: data.full_name, appRole: data.app_role as AppRole,
-        employeeId: data.employee_id, isActive: data.is_active,
+        id: data.id,
+        authUserId: data.auth_user_id,
+        username: data.username,
+        fullName: data.full_name,
+        appRole: data.app_role as AppRole,
+        employeeId: data.employee_id,
+        isActive: data.is_active,
       });
     } else {
       setAppUser(null);
-    }
-  }, [getSupabase]);
-
-  const clearAuthState = useCallback(() => {
-    if (clearingRef.current) return;
-    clearingRef.current = true;
-    try {
-      wipeAuthStorage();
-      setUser(null);
-      setSession(null);
-      setAppUser(null);
-    } finally {
-      clearingRef.current = false;
     }
   }, []);
 
@@ -95,20 +85,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let subscription: { unsubscribe: () => void } | null = null;
 
     const init = async () => {
-      // If we already wiped tokens in a previous cycle, skip getSession
-      // and go straight to setting up a fresh listener.
-      const supabase = getSupabase();
-
+      const supabase = createClient();
       const { data, error } = await supabase.auth.getSession();
 
       if (cancelled) return;
 
       if (error) {
-        // Stale/invalid refresh token — wipe everything and reset the singleton.
-        // Do NOT set up onAuthStateChange on this broken client.
-        // Setting tokenWipedRef prevents an infinite wipe loop.
-        if (!tokenWipedRef.current) {
-          tokenWipedRef.current = true;
+        // Invalid/stale refresh token — wipe storage and reset singleton ONCE.
+        // Do NOT attach onAuthStateChange to this broken client.
+        if (!wipedRef.current) {
+          wipedRef.current = true;
           wipeAuthStorage();
           resetSupabaseClient();
         }
@@ -119,20 +105,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
-      // Reset the wipe guard once we have a clean session cycle
-      tokenWipedRef.current = false;
+      // Clean session cycle — reset the wipe guard
+      wipedRef.current = false;
 
       if (data.session) {
         setSession(data.session);
         setUser(data.session.user);
-        await fetchAppUser(data.session.user.id);
+        if (!cancelled) await fetchAppUser(data.session.user.id);
       }
 
       if (cancelled) return;
       setLoading(false);
 
-      // Set up the auth state listener only after a successful getSession
-      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      // Only attach the listener after a successful getSession()
+      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
         if (cancelled || clearingRef.current) return;
 
         if (event === 'SIGNED_OUT') {
@@ -143,27 +129,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
+        // Null session on TOKEN_REFRESHED means the refresh token was revoked
         if (event === 'TOKEN_REFRESHED' && !newSession) {
-          clearAuthState();
+          if (!wipedRef.current) {
+            wipedRef.current = true;
+            wipeAuthStorage();
+            resetSupabaseClient();
+          }
+          setUser(null);
+          setSession(null);
+          setAppUser(null);
           setLoading(false);
           return;
         }
 
+        // Null INITIAL_SESSION just means no session — not an error
         if (event === 'INITIAL_SESSION' && !newSession) {
           setLoading(false);
           return;
         }
 
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-        if (newSession?.user) {
-          fetchAppUser(newSession.user.id).finally(() => {
-            if (!cancelled) setLoading(false);
-          });
+        if (newSession) {
+          setSession(newSession);
+          setUser(newSession.user);
+          await fetchAppUser(newSession.user.id);
         } else {
+          setSession(null);
+          setUser(null);
           setAppUser(null);
-          setLoading(false);
         }
+
+        if (!cancelled) setLoading(false);
       });
 
       subscription = sub;
@@ -175,17 +171,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       cancelled = true;
       subscription?.unsubscribe();
     };
-  }, [getSupabase, fetchAppUser, clearAuthState]);
+  }, [fetchAppUser]);
 
+  // ─── Brand Config ───────────────────────────────────────────────────────────
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
     if (cached) {
       try { setBrandConfig(JSON.parse(cached)); return; }
       catch { sessionStorage.removeItem(BRAND_CACHE_KEY); }
     }
-    supabase.from('system_config')
+    supabase
+      .from('system_config')
       .select('config_key, config_value')
       .in('config_key', ['brand_primary_color', 'brand_accent_color', 'brand_logo_url', 'restaurant_name', 'brand_theme'])
       .then(({ data }) => {
@@ -202,10 +200,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setBrandConfig(config);
         sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
-  }, [getSupabase]);
+  }, []);
+
+  // ─── Auth Actions ───────────────────────────────────────────────────────────
 
   const signIn = async (email: string, password: string) => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
@@ -213,7 +213,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     clearingRef.current = true;
-    const supabase = getSupabase();
+    const supabase = createClient();
     try {
       await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
       wipeAuthStorage();
@@ -227,7 +227,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const { data, error } = await supabase.functions.invoke('create-app-user', {
       body: { username: username.trim().toLowerCase(), password, fullName, role, employeeId: employeeId || null },
     });
@@ -236,7 +236,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const updateUserPassword = async (authUserId: string, newPassword: string) => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const { error } = await supabase.functions.invoke('update-user-password', {
       body: { auth_user_id: authUserId, new_password: newPassword },
     });
@@ -244,33 +244,43 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const listUsers = async (): Promise<AppUser[]> => {
-    const supabase = getSupabase();
+    const supabase = createClient();
     const { data, error } = await supabase.from('app_users').select('*').order('full_name');
     if (error) throw error;
     return (data || []).map((u: any) => ({
-      id: u.id, authUserId: u.auth_user_id, username: u.username,
-      fullName: u.full_name, appRole: u.app_role as AppRole,
-      employeeId: u.employee_id, isActive: u.is_active,
+      id: u.id,
+      authUserId: u.auth_user_id,
+      username: u.username,
+      fullName: u.full_name,
+      appRole: u.app_role as AppRole,
+      employeeId: u.employee_id,
+      isActive: u.is_active,
     }));
   };
 
   const toggleUserActive = async (userId: string, isActive: boolean) => {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('app_users').update({ is_active: isActive }).eq('id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('app_users')
+      .update({ is_active: isActive, updated_at: new Date().toISOString() })
+      .eq('id', userId);
     if (error) throw error;
   };
 
   const updateUserRole = async (userId: string, role: AppRole) => {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('app_users').update({ app_role: role }).eq('id', userId);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('app_users')
+      .update({ app_role: role, updated_at: new Date().toISOString() })
+      .eq('id', userId);
     if (error) throw error;
   };
 
   return (
     <AuthContext.Provider value={{
       user, session, appUser, loading, brandConfig,
-      signIn, signOut,
-      createUser, updateUserPassword, listUsers, toggleUserActive, updateUserRole,
+      signIn, signOut, createUser, updateUserPassword,
+      listUsers, toggleUserActive, updateUserRole,
     }}>
       {children}
     </AuthContext.Provider>
