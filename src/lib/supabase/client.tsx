@@ -21,11 +21,16 @@ export function wipeAuthStorage() {
 
 export const clearSupabaseSession = wipeAuthStorage;
 
-// ─── Client factory ───────────────────────────────────────────────────────────
-// persistSession: false — session lives in memory only, never written to
-// localStorage or cookies. Eliminates ALL stale-token / invalid-refresh-token
-// errors on startup. autoRefreshToken keeps the token alive while the tab is open.
+// ─── No-op storage adapter ────────────────────────────────────────────────────
+// Supabase will never read from or write to localStorage/cookies.
+// This completely prevents "Invalid Refresh Token" errors on startup.
+const noopStorage = {
+  getItem: (_key: string): string | null => null,
+  setItem: (_key: string, _value: string): void => {},
+  removeItem: (_key: string): void => {},
+};
 
+// ─── Client factory ───────────────────────────────────────────────────────────
 function createNewClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,8 +38,9 @@ function createNewClient() {
     {
       auth: {
         persistSession: false,
-        autoRefreshToken: true,
+        autoRefreshToken: false,
         detectSessionInUrl: false,
+        storage: noopStorage,
       },
     }
   );
@@ -45,9 +51,6 @@ declare global { interface Window { __sr_supabase?: ReturnType<typeof createNewC
 export function createClient() {
   if (typeof window !== 'undefined') {
     if (!window.__sr_supabase) {
-      // Wipe any stale tokens BEFORE creating the client so Supabase never
-      // reads an invalid refresh token from storage during initialization.
-      wipeAuthStorage();
       window.__sr_supabase = createNewClient();
     }
     return window.__sr_supabase;
