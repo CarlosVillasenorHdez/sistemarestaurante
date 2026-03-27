@@ -144,7 +144,7 @@ export default function DashboardKPIs() {
         ] = await Promise.all([
           supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', todayUTC),
           supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', yesterdayUTC).lt('created_at', todayUTC),
-          supabase.from('orders').select('id').eq('status', 'abierta'),
+          supabase.from('orders').select('id').in('status', ['abierta', 'preparacion', 'lista']),
           supabase.from('restaurant_tables').select('status'),
           supabase.from('order_items').select('name, qty').gte('created_at', todayUTC),
           supabase.from('ingredients').select('name, stock, min_stock'),
@@ -182,6 +182,17 @@ export default function DashboardKPIs() {
       }
     }
     load();
+
+    // Real-time subscriptions: refresh KPIs whenever orders or ingredients change
+    const channel = supabase
+      .channel('dashboard-kpis-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingredients' }, () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => { load(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   return (

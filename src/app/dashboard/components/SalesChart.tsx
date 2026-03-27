@@ -161,8 +161,14 @@ export default function SalesChart() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
+
+    // Real-time subscription: refresh chart whenever orders change
+    const channel = supabase
+      .channel('dashboard-sales-chart-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchData(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
 
   const data = view === 'hoy' ? hourlyData : weeklyData;

@@ -77,8 +77,15 @@ export default function RecentOrders() {
 
   useEffect(() => {
     fetchOrders();
-    const interval = setInterval(fetchOrders, 30000);
-    return () => clearInterval(interval);
+
+    // Real-time subscription: refresh orders table whenever orders or order_items change
+    const channel = supabase
+      .channel('dashboard-recent-orders-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => { fetchOrders(); })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, [fetchOrders]);
 
   const filtered =
