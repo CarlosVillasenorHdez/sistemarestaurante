@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { createClient, wipeAuthStorage } from '../lib/supabase/client';
+import { createClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -56,16 +56,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
 
-  // Store the client in a ref so it NEVER changes between renders.
-  // If we stored it as a plain variable or used createClient() in the body,
-  // React re-renders would cause supabase to appear as a "new" dep in useEffect,
-  // triggering getSession() again → infinite loop.
+  // Stable ref — never changes between renders, survives re-renders without
+  // triggering useEffect deps. With persistSession:false the client starts
+  // clean every time — no stale tokens to worry about.
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
-
-  // Prevents the SIGNED_OUT event (fired by our own signOut call)
-  // from re-entering clearAuthState and causing a loop.
-  const clearingRef = useRef(false);
 
   const fetchAppUser = useCallback(async (authUid: string) => {
     const { data, error } = await supabase
@@ -81,32 +76,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [supabase]);
 
-  // Clears React state and wipes stored tokens.
-  // Does NOT reset the singleton client — that would cause a new GoTrueClient
-  // to be created on the next render, which would detect the (now-wiped) storage
-  // and start a fresh refresh loop.
-  const clearAuthState = useCallback(() => {
-    if (clearingRef.current) return;
-    clearingRef.current = true;
-    try {
-      wipeAuthStorage();
-      setUser(null);
-      setSession(null);
-      setAppUser(null);
-    } finally {
-      clearingRef.current = false;
-    }
-  }, []);
-
   useEffect(() => {
-    // One-time session check on mount.
-    // If the token is invalid, wipe it and show the login page.
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (error) {
-        wipeAuthStorage();
-        setLoading(false);
-        return;
-      }
+    // With persistSession:false, getSession() returns null on every fresh load.
+    // No network request is made — the client just checks its in-memory state.
+    supabase.auth.getSession().then(({ data }) => {
       if (!data.session) {
         setLoading(false);
         return;
@@ -117,33 +90,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (clearingRef.current) return;
-
-      if (event === 'SIGNED_OUT') {
-        clearAuthState();
-        setLoading(false);
-        return;
-      }
-
-      if (event === 'TOKEN_REFRESHED' && !newSession) {
-        clearAuthState();
-        setLoading(false);
-        return;
-      }
-
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      if (newSession?.user) {
-        fetchAppUser(newSession.user.id).finally(() => setLoading(false));
-      } else {
+      if (event === 'SIGNED_OUT' || !newSession) {
+        setUser(null);
+        setSession(null);
         setAppUser(null);
         setLoading(false);
+        return;
       }
+      setSession(newSession);
+      setUser(newSession.user);
+      fetchAppUser(newSession.user.id).finally(() => setLoading(false));
     });
 
     return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Empty deps: run once on mount only. supabase is stable via useRef.
+  }, []); // runs once on mount
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
@@ -170,29 +131,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount.
+  }, []);
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    // Re-enable auto-refresh after a successful login.
-    // We start with autoRefreshToken:false to prevent stale-token storms on boot,
-    // but once the user has a fresh valid session we want normal refresh behaviour.
-    try { (supabase.auth as any).startAutoRefresh(); } catch { /* not available in all versions */ }
     return data;
   };
 
   const signOut = async () => {
-    clearingRef.current = true;
-    try {
-      await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
-      wipeAuthStorage();
-      setUser(null);
-      setSession(null);
-      setAppUser(null);
-    } finally {
-      clearingRef.current = false;
-    }
+    await supabase.auth.signOut().catch(() => {});
+    setUser(null);
+    setSession(null);
+    setAppUser(null);
   };
 
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
