@@ -16,11 +16,11 @@ interface AppLayoutProps {
 export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const { appUser, loading } = useAuth();
+  const { loading, appUser } = useAuth();
   const router = useRouter();
 
-  // Redirect to login if not authenticated
-  React.useEffect(() => {
+  // Auth check — redirect to login if not authenticated
+  useEffect(() => {
     if (!loading && !appUser) {
       router.replace('/login');
     }
@@ -39,8 +39,6 @@ export default function AppLayout({ children, title, subtitle, lastUpdated }: Ap
       </div>
     );
   }
-
-  if (!appUser) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">

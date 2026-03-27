@@ -42,6 +42,27 @@ const getToken = () =>
   (canUseCookies() ? fromCookies() : fromStorage())
     .find((c) => c.name.includes('auth-token'))?.value ?? null;
 
+/** Clear all Supabase session tokens from both storage mechanisms */
+export const clearSupabaseSession = () => {
+  if (typeof window === 'undefined') return;
+  // Clear from localStorage
+  try {
+    const keysToRemove = Object.keys(localStorage).filter(
+      (k) => k.startsWith(PFX) || k.startsWith('supabase') || k.includes('auth-token') || k.includes('refresh_token')
+    );
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {}
+  // Clear from cookies
+  try {
+    fromCookies()
+      .filter((c) => c.name.includes('auth-token') || c.name.includes('supabase') || c.name.includes('refresh'))
+      .forEach((c) => {
+        document.cookie = `${c.name}=; Path=/; Max-Age=0; SameSite=None; Secure`;
+        document.cookie = `${c.name}=; Path=/; Max-Age=0`;
+      });
+  } catch {}
+};
+
 if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   (window as any).__sb_patched__ = true;
   const orig = window.fetch.bind(window);
@@ -57,36 +78,11 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
-// Wipe all auth tokens from storage — called before creating a fresh client
-// so stale tokens don't trigger refresh attempts.
-export function wipeAuthStorage() {
-  try {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('sb_') || k.startsWith('sb-') || k.toLowerCase().startsWith('supabase'))
-      .forEach((k) => localStorage.removeItem(k));
-  } catch { /* SSR */ }
-  try {
-    document.cookie.split(';').forEach((c) => {
-      const name = c.trim().split('=')[0].trim();
-      if (name.startsWith('sb-') || name.startsWith('sb_') || name.toLowerCase().startsWith('supabase')) {
-        document.cookie = name + '=; Path=/; Max-Age=0; SameSite=None; Secure';
-        document.cookie = name + '=; Path=/; Max-Age=0';
-      }
-    });
-  } catch { /* SSR */ }
-}
-
-function createNewClient() {
+export function createClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      auth: {
-        // Suppress auto-retry on invalid tokens — we handle refresh errors manually
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true,
-      },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
         setAll(cookiesToSet) {
@@ -109,22 +105,4 @@ function createNewClient() {
       },
     }
   );
-}
-
-// Singleton — one GoTrueClient for the entire app.
-// Multiple instances each try to refresh tokens independently, exhausting the rate limit.
-let _client: ReturnType<typeof createNewClient> | null = null;
-
-export function createClient() {
-  if (!_client) _client = createNewClient();
-  return _client;
-}
-
-export function getSupabaseClient() {
-  return createClient();
-}
-
-// Reset singleton after sign-out so the next sign-in starts fresh.
-export function resetSupabaseClient() {
-  _client = null;
 }
