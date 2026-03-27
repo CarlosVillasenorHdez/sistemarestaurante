@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import { createClient } from '../lib/supabase/client';
+import { createClient, wipeAuthStorage } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -65,6 +65,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
+    // Clear any stale Supabase auth tokens to prevent "Invalid Refresh Token" errors
+    wipeAuthStorage();
+
     const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
     if (cached) {
       try { setBrandConfig(JSON.parse(cached)); return; }
