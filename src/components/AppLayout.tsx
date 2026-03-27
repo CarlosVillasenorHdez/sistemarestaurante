@@ -16,15 +16,15 @@ interface AppLayoutProps {
 export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const { loading } = useAuth();
+  const { loading, appUser } = useAuth();
   const router = useRouter();
 
-  // Auth check disabled — login bypassed
-  // React.useEffect(() => {
-  //   if (!loading && !appUser) {
-  //     router.replace('/login');
-  //   }
-  // }, [loading, appUser, router]);
+  // Auth check — redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !appUser) {
+      router.replace('/login');
+    }
+  }, [loading, appUser, router]);
 
   if (loading) {
     return (
