@@ -16,15 +16,15 @@ interface AppLayoutProps {
 export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const { appUser, loading } = useAuth();
+  const { loading } = useAuth();
   const router = useRouter();
 
-  // Redirect to login if not authenticated
-  React.useEffect(() => {
-    if (!loading && !appUser) {
-      router.replace('/login');
-    }
-  }, [loading, appUser, router]);
+  // Auth check disabled — login bypassed
+  // React.useEffect(() => {
+  //   if (!loading && !appUser) {
+  //     router.replace('/login');
+  //   }
+  // }, [loading, appUser, router]);
 
   if (loading) {
     return (
@@ -39,8 +39,6 @@ export default function AppLayout({ children, title, subtitle, lastUpdated }: Ap
       </div>
     );
   }
-
-  if (!appUser) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
