@@ -82,28 +82,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const clearAuthState = useCallback(() => {
-    // Clear all supabase auth keys from localStorage to remove stale tokens
-    try {
-      Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith('sb-') || key.includes('supabase')) {
-          localStorage.removeItem(key);
-        }
-      });
-    } catch (_) {}
-    setSession(null);
-    setUser(null);
-    setAppUser(null);
-    setLoading(false);
-  }, []);
-
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error && (error.message?.includes('Refresh Token Not Found') || error.message?.includes('Invalid Refresh Token'))) {
-        clearAuthState();
-        supabase.auth.signOut().catch(() => {});
-        return;
-      }
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -113,14 +93,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (_event === 'TOKEN_REFRESHED' && !session) {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // On any sign-out path (explicit, token expiry, remote revoke) wipe stale tokens
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !session) {
         clearAuthState();
-        supabase.auth.signOut().catch(() => {});
-        return;
-      }
-      if (_event === 'SIGNED_OUT') {
-        clearAuthState();
+        setLoading(false);
         return;
       }
       setSession(session);
@@ -134,7 +111,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchAppUser, clearAuthState]);
+  }, [fetchAppUser]);
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
 
@@ -170,6 +147,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       });
   }, []);
 
+  // Wipe all Supabase auth keys from localStorage to prevent stale token loops.
+  // Called on explicit signOut AND on SIGNED_OUT events (token expiry, remote revoke).
+  const clearAuthState = () => {
+    try {
+      const keysToRemove = Object.keys(localStorage).filter(
+        (k) => k.startsWith('sb-') || k.startsWith('supabase')
+      );
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // localStorage may be unavailable in some environments — fail silently
+    }
+    setUser(null);
+    setSession(null);
+    setAppUser(null);
+  };
+
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -177,9 +170,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setAppUser(null);
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // signOut can fail when the token is already invalid — clear locally anyway
+    } finally {
+      clearAuthState();
+    }
   };
 
   // Admin: create a new system user via Edge Function (uses Service Role Key server-side)
