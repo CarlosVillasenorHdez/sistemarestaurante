@@ -3,7 +3,7 @@ import { createBrowserClient } from '@supabase/ssr';
 // ─── Auth Storage Wipe ────────────────────────────────────────────────────────
 
 /**
- * Wipe ALL Supabase auth tokens from localStorage and cookies.
+ * Wipe ALL Supabase auth tokens from localStorage, sessionStorage and cookies.
  */
 export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
@@ -16,11 +16,27 @@ export function wipeAuthStorage() {
         lower.startsWith('sb_') ||
         lower.startsWith('supabase') ||
         lower.includes('auth-token') ||
-        lower.includes('auth_token')
+        lower.includes('auth_token') ||
+        lower.includes('refresh_token') ||
+        lower.includes('access_token')
       );
     });
     keysToRemove.forEach((k) => localStorage.removeItem(k));
   } catch { /* SSR / private browsing */ }
+
+  try {
+    const keysToRemove = Object.keys(sessionStorage).filter((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower.startsWith('sb-') ||
+        lower.startsWith('sb_') ||
+        lower.startsWith('supabase') ||
+        lower.includes('auth-token') ||
+        lower.includes('auth_token')
+      );
+    });
+    keysToRemove.forEach((k) => sessionStorage.removeItem(k));
+  } catch { /* SSR */ }
 
   try {
     document.cookie.split(';').forEach((c) => {
@@ -47,7 +63,7 @@ function buildClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        autoRefreshToken: true,
+        autoRefreshToken: false,
         persistSession: true,
         detectSessionInUrl: true,
       },
