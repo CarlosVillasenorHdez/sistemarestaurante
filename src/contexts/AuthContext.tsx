@@ -175,6 +175,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    // Re-enable auto-refresh after a successful login.
+    // We start with autoRefreshToken:false to prevent stale-token storms on boot,
+    // but once the user has a fresh valid session we want normal refresh behaviour.
+    try { (supabase.auth as any).startAutoRefresh(); } catch { /* not available in all versions */ }
     return data;
   };
 

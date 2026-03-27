@@ -121,12 +121,13 @@ function createNewClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        // We handle token refresh errors manually in AuthContext.
-        // Keeping autoRefreshToken ON but we pre-validate the token before
-        // creating the client to prevent stale-token refresh storms.
-        autoRefreshToken: true,
+        // autoRefreshToken DISABLED — prevents the GoTrueClient from making
+        // hundreds of /token requests when the refresh_token was deleted from
+        // Supabase (DB reset, project switch, etc.).
+        // Tokens refresh on demand when making authenticated requests.
+        autoRefreshToken: false,
         persistSession: true,
-        detectSessionInUrl: false, // prevents double-processing of URL tokens
+        detectSessionInUrl: false,
       },
       cookies: {
         getAll: () => canUseCookies() ? fromCookies() : fromStorage(),
