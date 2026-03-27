@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, wipeAuthStorage } from '@/lib/supabase/client';
 
 interface WorkerOption {
   username: string;
@@ -50,6 +50,8 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
+      // Wipe stale tokens before sign-in to prevent rate-limit loops
+      wipeAuthStorage();
       const email = `${selectedUsername}@sistemarest.local`;
       await signIn(email, password);
       router.replace('/dashboard');
