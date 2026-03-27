@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLogo from '@/components/ui/AppLogo';
-import { createClient, wipeAuthStorage } from '@/lib/supabase/client';
+import { wipeAuthStorage } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 
 interface WorkerOption {
   username: string;
@@ -14,7 +15,10 @@ interface WorkerOption {
 export default function LoginPage() {
   const { signIn } = useAuth();
   const router = useRouter();
-  const supabase = createClient();
+
+  // Use ref so supabase never changes between renders
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   const [workers, setWorkers] = useState<WorkerOption[]>([]);
   const [selectedUsername, setSelectedUsername] = useState('');
@@ -23,23 +27,28 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [loadingWorkers, setLoadingWorkers] = useState(true);
 
+  // Wipe any stale tokens immediately when login page mounts.
+  // This prevents the GoTrueClient from attempting to refresh an invalid token
+  // before the user even enters their credentials.
   useEffect(() => {
-    const fetchWorkers = async () => {
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('username, full_name')
-        .eq('is_active', true)
-        .order('full_name');
-      if (!error && data) {
-        setWorkers(data as WorkerOption[]);
-        if (data.length > 0) {
-          setSelectedUsername(data[0].username);
-        }
-      }
-      setLoadingWorkers(false);
-    };
-    fetchWorkers();
+    wipeAuthStorage();
   }, []);
+
+  useEffect(() => {
+    supabase
+      .from('app_users')
+      .select('username, full_name')
+      .eq('is_active', true)
+      .order('full_name')
+      .then(({ data, error: err }) => {
+        if (!err && data) {
+          setWorkers(data as WorkerOption[]);
+          if (data.length > 0) setSelectedUsername(data[0].username);
+        }
+        setLoadingWorkers(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,8 +59,6 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      // Wipe stale tokens before sign-in to prevent rate-limit loops
-      wipeAuthStorage();
       const email = `${selectedUsername}@sistemarest.local`;
       await signIn(email, password);
       router.replace('/dashboard');
@@ -106,7 +113,7 @@ export default function LoginPage() {
                   value={selectedUsername}
                   onChange={(e) => setSelectedUsername(e.target.value)}
                   required
-                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition appearance-none"
+                  className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none appearance-none"
                   style={{
                     backgroundColor: 'rgba(255,255,255,0.07)',
                     border: '1px solid rgba(255,255,255,0.12)',
@@ -138,7 +145,7 @@ export default function LoginPage() {
                 required
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:ring-2 transition"
+                className="w-full rounded-lg px-4 py-2.5 text-sm text-white outline-none"
                 style={{
                   backgroundColor: 'rgba(255,255,255,0.07)',
                   border: '1px solid rgba(255,255,255,0.12)',
