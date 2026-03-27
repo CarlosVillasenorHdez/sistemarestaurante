@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+import { createClient, wipeAuthStorage } from '@/lib/supabase/client';
 import AppLogo from '@/components/ui/AppLogo';
 import { Eye, EyeOff, LogIn, AlertCircle, ChevronDown, User } from 'lucide-react';
 
@@ -76,6 +76,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      // Wipe any stale tokens before attempting sign-in.
+      // If stale tokens exist, the client tries to refresh them first,
+      // hits the rate limit, and then signIn fails even with correct credentials.
+      wipeAuthStorage();
+
       const email = `${selectedWorker.username.trim().toLowerCase()}@sistemarest.local`;
 
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
