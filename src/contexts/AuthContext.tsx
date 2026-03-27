@@ -84,10 +84,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  // Wipe all Supabase auth keys from localStorage.
+  // Declared as useCallback before the useEffect so the closure captures it correctly.
+  const clearAuthState = useCallback(() => {
+    try {
+      const keysToRemove = Object.keys(localStorage).filter(
+        (k) => k.startsWith('sb-') || k.startsWith('supabase')
+      );
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {
+      // localStorage may be unavailable in some environments — fail silently
+    }
+    setUser(null);
+    setSession(null);
+    setAppUser(null);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }, error }) => {
-      // If the stored refresh token is invalid/expired, wipe it and treat as logged out
       if (error) {
+        // Refresh token invalid or expired — wipe stale tokens and go to login
         clearAuthState();
         setLoading(false);
         return;
@@ -119,7 +135,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchAppUser]);
+  }, [fetchAppUser, clearAuthState]);
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
 
@@ -154,22 +170,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         sessionStorage.setItem(BRAND_CACHE_KEY, JSON.stringify(config));
       });
   }, []);
-
-  // Wipe all Supabase auth keys from localStorage to prevent stale token loops.
-  // Called on explicit signOut AND on SIGNED_OUT events (token expiry, remote revoke).
-  const clearAuthState = () => {
-    try {
-      const keysToRemove = Object.keys(localStorage).filter(
-        (k) => k.startsWith('sb-') || k.startsWith('supabase')
-      );
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-    } catch {
-      // localStorage may be unavailable in some environments — fail silently
-    }
-    setUser(null);
-    setSession(null);
-    setAppUser(null);
-  };
 
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
