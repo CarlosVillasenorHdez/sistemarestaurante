@@ -1,6 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-// ─── Wipe storage helper (kept for backwards compatibility) ───────────────────
+// ─── Wipe storage helper ──────────────────────────────────────────────────────
 export function wipeAuthStorage() {
   if (typeof window === 'undefined') return;
   try {
@@ -22,16 +22,9 @@ export function wipeAuthStorage() {
 export const clearSupabaseSession = wipeAuthStorage;
 
 // ─── Client factory ───────────────────────────────────────────────────────────
-// KEY CHANGE: persistSession: false
-//
-// The session lives in memory only — never written to localStorage or cookies.
-// This eliminates ALL stale-token errors:
-//   - No tokens survive closing the tab → no stale refresh tokens on next open
-//   - No "Invalid Refresh Token" loops → nothing to refresh on startup
-//   - autoRefreshToken: true → token refreshes normally while the tab is open
-//
-// Trade-off: users log in again when they open a new tab or refresh the page.
-// For a restaurant POS used during shifts, this is perfectly acceptable.
+// persistSession: false — session lives in memory only, never written to
+// localStorage or cookies. Eliminates ALL stale-token / invalid-refresh-token
+// errors on startup. autoRefreshToken keeps the token alive while the tab is open.
 
 function createNewClient() {
   return createBrowserClient(
@@ -47,12 +40,14 @@ function createNewClient() {
   );
 }
 
-// Singleton on window — survives HMR module reloads in development.
 declare global { interface Window { __sr_supabase?: ReturnType<typeof createNewClient>; } }
 
 export function createClient() {
   if (typeof window !== 'undefined') {
     if (!window.__sr_supabase) {
+      // Wipe any stale tokens BEFORE creating the client so Supabase never
+      // reads an invalid refresh token from storage during initialization.
+      wipeAuthStorage();
       window.__sr_supabase = createNewClient();
     }
     return window.__sr_supabase;
