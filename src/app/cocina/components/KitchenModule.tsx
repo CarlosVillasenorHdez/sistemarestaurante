@@ -126,10 +126,19 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick }: OrderCardPro
       {/* Items */}
       <div className="space-y-1.5 mb-3">
         {order.items.map((item, i) => (
-          <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
-            <span className="text-base leading-none">{item.emoji}</span>
-            <span className="flex-1 text-sm font-medium" style={{ color: '#f1f5f9' }}>{item.name}</span>
-            <span className="text-sm font-bold px-2 py-0.5 rounded-md" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>×{item.qty}</span>
+          <div key={i} className="rounded-lg overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+            <div className="flex items-center gap-2 px-3 py-2">
+              <span className="text-base leading-none">{item.emoji}</span>
+              <span className="flex-1 text-sm font-medium" style={{ color: '#f1f5f9' }}>{item.name}</span>
+              <span className="text-sm font-bold px-2 py-0.5 rounded-md" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>×{item.qty}</span>
+            </div>
+            {item.notes && (
+              <div className="px-3 pb-2">
+                <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#fbbf24' }}>
+                  📝 {item.notes}
+                </span>
+              </div>
+            )}
           </div>
         ))}
       </div>
