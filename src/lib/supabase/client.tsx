@@ -85,10 +85,21 @@ export function wipeAuthStorage() {
 function wipeStaleTokensIfNeeded() {
   if (typeof window === 'undefined') return;
   try {
-    // Find any stored session JSON in localStorage
-    const sessionKeys = Object.keys(localStorage).filter(
-      (k) => (k.startsWith('sb-') || k.startsWith('sb_')) && k.includes('auth-token')
-    );
+    // Cast a wide net: any localStorage key that might hold a Supabase session
+    const sessionKeys = Object.keys(localStorage).filter((k) => {
+      const lower = k.toLowerCase();
+      return (
+        lower.includes('auth-token') ||
+        lower.includes('auth_token') ||
+        lower.includes('supabase') ||
+        (lower.startsWith('sb-') && lower.includes('token')) ||
+        (lower.startsWith('sb_') && lower.includes('token'))
+      );
+    });
+
+    if (sessionKeys.length === 0) return; // nothing stored — no stale tokens
+
+    let shouldWipe = false;
     for (const key of sessionKeys) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
@@ -99,15 +110,19 @@ function wipeStaleTokensIfNeeded() {
         const expiresAt: number | undefined = session?.expires_at;
         const nowSec = Math.floor(Date.now() / 1000);
         // Wipe if no refresh token or token expired more than 60s ago
-        if (!hasRefreshToken || (expiresAt && expiresAt < nowSec - 60)) {
-          wipeAuthStorage();
-          return;
+        if (!hasRefreshToken || (expiresAt !== undefined && expiresAt < nowSec - 60)) {
+          shouldWipe = true;
+          break;
         }
       } catch {
         // Malformed JSON — wipe it
-        wipeAuthStorage();
-        return;
+        shouldWipe = true;
+        break;
       }
+    }
+
+    if (shouldWipe) {
+      wipeAuthStorage();
     }
   } catch { /* ignore */ }
 }

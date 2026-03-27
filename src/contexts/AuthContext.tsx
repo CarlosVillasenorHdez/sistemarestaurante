@@ -98,8 +98,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
-        // Invalid / expired refresh token — wipe silently, show login
-        clearAuthState();
+        // Invalid / expired refresh token — wipe storage and reset the
+        // singleton so the next client creation starts completely fresh.
+        wipeAuthStorage();
+        resetSupabaseClient();
+        setUser(null);
+        setSession(null);
+        setAppUser(null);
         setLoading(false);
         return;
       }
