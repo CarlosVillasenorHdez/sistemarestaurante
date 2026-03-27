@@ -82,14 +82,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  const clearAuthState = useCallback(() => {
+    // Clear all supabase auth keys from localStorage to remove stale tokens
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('sb-') || key.includes('supabase')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (_) {}
+    setSession(null);
+    setUser(null);
+    setAppUser(null);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error && (error.message?.includes('Refresh Token Not Found') || error.message?.includes('Invalid Refresh Token'))) {
-        supabase.auth.signOut();
-        setSession(null);
-        setUser(null);
-        setAppUser(null);
-        setLoading(false);
+        clearAuthState();
+        supabase.auth.signOut().catch(() => {});
         return;
       }
       setSession(session);
@@ -103,11 +115,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (_event === 'TOKEN_REFRESHED' && !session) {
-        supabase.auth.signOut();
-        setSession(null);
-        setUser(null);
-        setAppUser(null);
-        setLoading(false);
+        clearAuthState();
+        supabase.auth.signOut().catch(() => {});
+        return;
+      }
+      if (_event === 'SIGNED_OUT') {
+        clearAuthState();
         return;
       }
       setSession(session);
@@ -121,7 +134,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchAppUser]);
+  }, [fetchAppUser, clearAuthState]);
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
 
