@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Minus, Plus, Trash2, ShoppingCart, Tag, ChevronDown, Send, Printer } from 'lucide-react';
+import { Minus, Plus, Trash2, ShoppingCart, Tag, ChevronDown, Send, Printer, MessageSquare } from 'lucide-react';
 import { Table, OrderItem } from './POSClient';
 
 interface OrderPanelProps {
@@ -19,6 +19,7 @@ interface OrderPanelProps {
   onCheckout: () => void;
   onSendToKitchen: () => void;
   onShowMenu: () => void;
+  onUpdateNote: (itemId: string, note: string) => void;
   kitchenSent: boolean;
   sendingToKitchen: boolean;
 }
@@ -38,11 +39,13 @@ export default function OrderPanel({
   onCheckout,
   onSendToKitchen,
   onShowMenu,
+  onUpdateNote,
   kitchenSent,
   sendingToKitchen,
 }: OrderPanelProps) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
+  const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
 
   const tableLabel = mergeGroupLabel ?? (selectedTable ? selectedTable.name : 'Sin mesa');
   // Real piece count (not distinct dishes)
@@ -126,54 +129,82 @@ export default function OrderPanel({
             </button>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div>
             {orderItems.map((item) => (
-              <div
-                key={item.menuItem.id}
-                className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors"
-              >
-                <span className="text-xl flex-shrink-0 mt-0.5">{item.menuItem.emoji}</span>
+              <div key={item.menuItem.id} className="border-b border-gray-50 last:border-0">
+                <div className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors">
+                  <span className="text-xl flex-shrink-0 mt-0.5">{item.menuItem.emoji}</span>
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-600 text-gray-800 leading-tight truncate" style={{ fontWeight: 600 }}>
-                    {item.menuItem.name}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5 font-mono">
-                    ${item.menuItem.price.toFixed(2)} c/u
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-600 text-gray-800 leading-tight truncate" style={{ fontWeight: 600 }}>
+                      {item.menuItem.name}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                      ${item.menuItem.price.toFixed(2)} c/u
+                    </p>
 
-                  <div className="flex items-center gap-2 mt-2">
-                    <button
-                      onClick={() => onUpdateQty(item.menuItem.id, -1)}
-                      className="w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-100 active:scale-95"
-                      style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}
-                    >
-                      <Minus size={10} />
-                    </button>
-                    <span className="font-mono font-700 text-sm w-5 text-center" style={{ fontWeight: 700 }}>
-                      {item.quantity}
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        onClick={() => onUpdateQty(item.menuItem.id, -1)}
+                        className="w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-100 active:scale-95"
+                        style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}
+                      >
+                        <Minus size={10} />
+                      </button>
+                      <span className="font-mono font-700 text-sm w-5 text-center" style={{ fontWeight: 700 }}>
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => onUpdateQty(item.menuItem.id, 1)}
+                        className="w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-100 active:scale-95"
+                        style={{ backgroundColor: '#dcfce7', color: '#16a34a' }}
+                      >
+                        <Plus size={10} />
+                      </button>
+                      <button
+                        onClick={() => setExpandedNoteId(expandedNoteId === item.menuItem.id ? null : item.menuItem.id)}
+                        className="ml-auto w-6 h-6 rounded-lg flex items-center justify-center transition-all"
+                        style={{ backgroundColor: item.notes ? 'rgba(245,158,11,0.15)' : '#f3f4f6', color: item.notes ? '#d97706' : '#9ca3af' }}
+                        title="Nota para cocina"
+                      >
+                        <MessageSquare size={10} />
+                      </button>
+                    </div>
+                    {item.notes && expandedNoteId !== item.menuItem.id && (
+                      <p className="text-xs mt-1 italic truncate" style={{ color: '#d97706' }}>
+                        📝 {item.notes}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2">
+                    <span className="font-mono font-700 text-sm text-gray-900" style={{ fontWeight: 700 }}>
+                      ${(item.menuItem.price * item.quantity).toFixed(2)}
                     </span>
                     <button
-                      onClick={() => onUpdateQty(item.menuItem.id, 1)}
-                      className="w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-100 active:scale-95"
-                      style={{ backgroundColor: '#dcfce7', color: '#16a34a' }}
+                      onClick={() => onRemoveItem(item.menuItem.id)}
+                      className="p-1 rounded hover:bg-red-50 transition-colors"
                     >
-                      <Plus size={10} />
+                      <Trash2 size={12} className="text-gray-300 hover:text-red-400" />
                     </button>
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-2">
-                  <span className="font-mono font-700 text-sm text-gray-900" style={{ fontWeight: 700 }}>
-                    ${(item.menuItem.price * item.quantity).toFixed(2)}
-                  </span>
-                  <button
-                    onClick={() => onRemoveItem(item.menuItem.id)}
-                    className="p-1 rounded hover:bg-red-50 transition-colors"
-                  >
-                    <Trash2 size={12} className="text-gray-300 hover:text-red-400" />
-                  </button>
-                </div>
+                {expandedNoteId === item.menuItem.id && (
+                  <div className="px-4 pb-3">
+                    <input
+                      type="text"
+                      value={item.notes ?? ''}
+                      onChange={(e) => onUpdateNote(item.menuItem.id, e.target.value)}
+                      placeholder="Sin cebolla, término medio, extra salsa..."
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border outline-none"
+                      style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb', color: '#92400e' }}
+                      autoFocus
+                      onBlur={() => setExpandedNoteId(null)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setExpandedNoteId(null); }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>

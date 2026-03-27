@@ -480,7 +480,27 @@ export default function POSClient() {
     }
   }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
 
-  // ─── Confirm merge ────────────────────────────────────────────────────────
+  // ─── Update note for a specific item ────────────────────────────────────────
+  const handleUpdateNote = useCallback(async (itemId: string, note: string) => {
+    if (!selectedTable) return;
+    const newItems = orderItems.map((o) =>
+      o.menuItem.id === itemId ? { ...o, notes: note } : o
+    );
+    setOrderItems(newItems);
+    if (selectedTable.currentOrderId) {
+      const newSubtotal = newItems.reduce((s, i) => s + i.menuItem.price * i.quantity, 0);
+      const discAmt = discount.type === 'pct'
+        ? newSubtotal * (discount.value / 100)
+        : Math.min(discount.value, newSubtotal);
+      const newTotal = (newSubtotal - discAmt) * 1.16;
+      const groupIds = selectedTable.mergeGroupId
+        ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
+        : [selectedTable.id];
+      syncOrderToTable(selectedTable.currentOrderId, groupIds, newItems, newTotal);
+    }
+  }, [selectedTable, orderItems, discount, tables, syncOrderToTable]);
+
+    // ─── Confirm merge ────────────────────────────────────────────────────────
 
   const handleConfirmMerge = async () => {
     if (mergeSelection.length < 2) {
@@ -729,6 +749,7 @@ export default function POSClient() {
             onCheckout={() => setShowPaymentModal(true)}
             onSendToKitchen={handleSendToKitchen}
             onShowMenu={() => setView('menu')}
+            onUpdateNote={handleUpdateNote}
             kitchenSent={kitchenSent}
             sendingToKitchen={sendingToKitchen}
           />
