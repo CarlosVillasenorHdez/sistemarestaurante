@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search, MessageSquare } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search } from 'lucide-react';
 import { useOrderFlow, type OrderFlowItem } from '@/hooks/useOrderFlow';
 import type { DbTable, DbDish } from '@/lib/supabase/types';
 
@@ -34,7 +34,6 @@ export default function MeseroMobileView() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'tables' | 'menu'>('tables');
-  const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
   const [branchName, setBranchName] = useState('Sucursal Principal');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
 
@@ -177,10 +176,6 @@ export default function MeseroMobileView() {
     }, []);
     setOrderItems(newItems);
     syncToDb(newItems, selectedTable, currentOrderId);
-  };
-
-  const updateNote = (dishId: string, note: string) => {
-    setOrderItems(prev => prev.map(i => i.dishId === dishId ? { ...i, notes: note } : i));
   };
 
   const getQty = (dishId: string) => orderItems.find(i => i.dishId === dishId)?.qty || 0;
@@ -385,56 +380,28 @@ export default function MeseroMobileView() {
             </div>
             <div className="p-5 space-y-3">
               {orderItems.map(item => (
-                <div key={item.dishId} className="border-b border-gray-50 last:border-0 pb-2 last:pb-0">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{item.emoji}</span>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800">{item.name}</p>
-                      <p className="text-xs text-gray-500">${item.price.toLocaleString('es-MX', { minimumFractionDigits: 2 })} c/u</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => removeItem(item.dishId)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>
-                        <Minus size={12} />
-                      </button>
-                      <span className="font-bold text-gray-800 w-5 text-center">{item.qty}</span>
-                      <button
-                        onClick={() => addItem(dishes.find(d => d.id === item.dishId) ?? { id: item.dishId, name: item.name, price: item.price, emoji: item.emoji, category: '', available: true, description: '', image: null, image_alt: null, popular: false, created_at: '', updated_at: null })}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: '#10b98120', color: '#10b981' }}
-                      >
-                        <Plus size={12} />
-                      </button>
-                      <button
-                        onClick={() => setExpandedNoteId(expandedNoteId === item.dishId ? null : item.dishId)}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center"
-                        style={{ backgroundColor: item.notes ? 'rgba(245,158,11,0.15)' : '#f3f4f6', color: item.notes ? '#d97706' : '#9ca3af' }}
-                        title="Nota para cocina"
-                      >
-                        <MessageSquare size={12} />
-                      </button>
-                    </div>
-                    <span className="text-sm font-bold text-gray-800 w-16 text-right">
-                      ${(item.qty * item.price).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                    </span>
+                <div key={item.dishId} className="flex items-center gap-3">
+                  <span className="text-2xl">{item.emoji}</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-800">{item.name}</p>
+                    <p className="text-xs text-gray-500">${item.price.toLocaleString('es-MX', { minimumFractionDigits: 2 })} c/u</p>
                   </div>
-                  {item.notes && expandedNoteId !== item.dishId && (
-                    <p className="text-xs mt-1 ml-9 italic" style={{ color: '#d97706' }}>📝 {item.notes}</p>
-                  )}
-                  {expandedNoteId === item.dishId && (
-                    <div className="mt-1.5 ml-9 mr-2">
-                      <input
-                        type="text"
-                        value={item.notes ?? ''}
-                        onChange={(e) => updateNote(item.dishId, e.target.value)}
-                        placeholder="Sin cebolla, término medio..."
-                        className="w-full px-3 py-1.5 text-xs rounded-lg border outline-none"
-                        style={{ borderColor: '#fde68a', backgroundColor: '#fffbeb', color: '#92400e' }}
-                        autoFocus
-                        onBlur={() => setExpandedNoteId(null)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') setExpandedNoteId(null); }}
-                      />
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => removeItem(item.dishId)} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#ef444420', color: '#ef4444' }}>
+                      <Minus size={12} />
+                    </button>
+                    <span className="font-bold text-gray-800 w-5 text-center">{item.qty}</span>
+                    <button
+                      onClick={() => addItem(dishes.find(d => d.id === item.dishId) ?? { id: item.dishId, name: item.name, price: item.price, emoji: item.emoji, category: '', available: true, description: '', image: null, image_alt: null, popular: false, created_at: '', updated_at: null })}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: '#10b98120', color: '#10b981' }}
+                    >
+                      <Plus size={12} />
+                    </button>
+                  </div>
+                  <span className="text-sm font-bold text-gray-800 w-16 text-right">
+                    ${(item.qty * item.price).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </span>
                 </div>
               ))}
             </div>
