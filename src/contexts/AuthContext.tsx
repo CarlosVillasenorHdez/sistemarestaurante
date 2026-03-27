@@ -46,23 +46,6 @@ export const useAuth = () => {
   return context;
 };
 
-const isAuthError = (error: any): boolean => {
-  if (!error) return false;
-  const msg = (error.message || '').toLowerCase();
-  return (
-    msg.includes('refresh token') ||
-    msg.includes('invalid token') ||
-    msg.includes('jwt expired') ||
-    msg.includes('token not found') ||
-    msg.includes('not found') ||
-    msg.includes('invalid refresh') ||
-    msg.includes('session_not_found') ||
-    msg.includes('user not found') ||
-    error.status === 401 ||
-    error.__isAuthError === true
-  );
-};
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser]       = useState<any>(null);
   const [session, setSession] = useState<any>(null);
@@ -74,6 +57,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
 
   const clearingRef = useRef(false);
+  const initializedRef = useRef(false);
 
   const clearAuthState = useCallback(() => {
     setUser(null);
@@ -84,7 +68,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const wipeAndReset = useCallback(async () => {
     try {
-      // Silently sign out locally to clear GoTrue internal state
       const supabase = createClient();
       await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     } catch { /* ignore */ }
@@ -112,103 +95,52 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     let cancelled = false;
-    let subscription: { unsubscribe: () => void } | null = null;
 
-    const init = async () => {
-      const supabase = createClient();
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    const supabase = createClient();
 
-      if (cancelled) return;
+    // Subscribe to auth state changes — this is the single source of truth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        if (cancelled || clearingRef.current) return;
 
-      // getSession() itself errored
-      if (sessionError) {
-        await wipeAndReset();
-        clearAuthState();
-        return;
-      }
-
-      // No stored session — user is logged out
-      if (!sessionData.session) {
-        setLoading(false);
-        const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(
-          async (event, newSession) => {
-            if (cancelled || clearingRef.current) return;
-            if (newSession) {
-              setSession(newSession);
-              setUser(newSession.user);
-              await fetchAppUser(newSession.user.id);
-            } else {
-              clearAuthState();
-            }
-            if (!cancelled) setLoading(false);
-          }
-        );
-        subscription = sub;
-        return;
-      }
-
-      // Validate the stored session server-side via getUser()
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-
-      if (cancelled) return;
-
-      if (userError || !userData?.user) {
-        // Server says the token is invalid — wipe everything silently
-        await wipeAndReset();
-        clearAuthState();
-        return;
-      }
-
-      // Session is valid — set state
-      setSession(sessionData.session);
-      setUser(sessionData.session.user);
-      if (!cancelled) await fetchAppUser(sessionData.session.user.id);
-      if (cancelled) return;
-      setLoading(false);
-
-      // Attach listener after confirming valid session
-      const { data: { subscription: sub } } = supabase.auth.onAuthStateChange(
-        async (event, newSession) => {
-          if (cancelled || clearingRef.current) return;
-
-          if (event === 'SIGNED_OUT') {
-            await wipeAndReset();
-            clearAuthState();
-            return;
-          }
-
-          if (event === 'TOKEN_REFRESHED' && !newSession) {
-            await wipeAndReset();
-            clearAuthState();
-            return;
-          }
-
-          if (event === 'INITIAL_SESSION' && !newSession) {
-            setLoading(false);
-            return;
-          }
-
-          if (newSession) {
-            setSession(newSession);
-            setUser(newSession.user);
-            await fetchAppUser(newSession.user.id);
-          } else {
-            clearAuthState();
-          }
-
-          if (!cancelled) setLoading(false);
+        if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED' && !newSession) {
+          clearAuthState();
+          return;
         }
-      );
 
-      subscription = sub;
-    };
+        if (newSession?.user) {
+          setSession(newSession);
+          setUser(newSession.user);
+          await fetchAppUser(newSession.user.id);
+          setLoading(false);
+        } else if (event === 'INITIAL_SESSION') {
+          // No session on initial load — user is logged out
+          setLoading(false);
+        } else if (!newSession) {
+          clearAuthState();
+        }
+      }
+    );
 
-    init();
+    // getSession() triggers INITIAL_SESSION event above — no extra server call needed
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error || !data.session) {
+        // If there's a stored but invalid session, wipe it silently
+        if (error) {
+          wipeAndReset().then(() => clearAuthState());
+        }
+        // If no session, INITIAL_SESSION event already handled loading=false
+      }
+    });
 
     return () => {
       cancelled = true;
-      subscription?.unsubscribe();
+      subscription.unsubscribe();
     };
   }, [fetchAppUser, clearAuthState, wipeAndReset]);
 
@@ -244,9 +176,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // ─── Auth Actions ───────────────────────────────────────────────────────────
 
   const signIn = async (email: string, password: string) => {
-    // Always wipe stale tokens before signing in
-    wipeAuthStorage();
-    resetSupabaseClient();
+    // Wipe stale tokens and reset singleton before each login attempt
+    await wipeAndReset();
     const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
@@ -255,8 +186,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signOut = async () => {
     clearingRef.current = true;
-    const supabase = createClient();
     try {
+      const supabase = createClient();
       await supabase.auth.signOut({ scope: 'global' }).catch(() => {});
       wipeAuthStorage();
       resetSupabaseClient();
@@ -265,6 +196,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setAppUser(null);
     } finally {
       clearingRef.current = false;
+      setLoading(false);
     }
   };
 
