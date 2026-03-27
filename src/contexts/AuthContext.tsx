@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { createClient } from '../lib/supabase/client';
+import { getSupabaseClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -59,7 +59,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     restaurantName: 'SistemaRest',
     theme: 'dark',
   });
-  const supabase = createClient();
+  // Use singleton client to avoid creating a new GoTrueClient on every render,
+  // which would trigger repeated getSession() calls and hit the rate limit.
+  const supabase = getSupabaseClient();
 
   const fetchAppUser = useCallback(async (authUid: string) => {
     const { data, error } = await supabase
