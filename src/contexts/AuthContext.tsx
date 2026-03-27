@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { getSupabaseClient } from '../lib/supabase/client';
+import { getSupabaseClient, resetSupabaseClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -111,6 +111,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUser(null);
     setSession(null);
     setAppUser(null);
+    // Reset the singleton so the next login creates a fresh client
+    // (avoids the old GoTrueClient retrying the invalid token)
+    resetSupabaseClient();
   }, [supabase]);
 
   useEffect(() => {

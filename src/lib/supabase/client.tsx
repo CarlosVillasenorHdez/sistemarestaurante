@@ -57,7 +57,7 @@ if (typeof window !== 'undefined' && !(window as any).__sb_patched__) {
   };
 }
 
-export function createClient() {
+function createNewClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -86,14 +86,24 @@ export function createClient() {
   );
 }
 
-// Singleton instance — reuse the same client across the entire app to avoid
-// creating multiple GoTrueClient instances which trigger repeated auth calls
-// and hit Supabase's request rate limit.
-let _supabaseClient: ReturnType<typeof createClient> | null = null;
+// ONE singleton shared across the entire app.
+// Multiple GoTrueClient instances each try to refresh the token independently,
+// which hits Supabase's rate limit and causes "Invalid Refresh Token" loops.
+let _client: ReturnType<typeof createNewClient> | null = null;
 
+export function createClient() {
+  if (!_client) _client = createNewClient();
+  return _client;
+}
+
+// Kept for backwards compatibility — same as createClient()
 export function getSupabaseClient() {
-  if (!_supabaseClient) {
-    _supabaseClient = createClient();
-  }
-  return _supabaseClient;
+  return createClient();
+}
+
+// Call this after sign-out to force a fresh client on the next login.
+// Without this, the old GoTrueClient keeps the invalid token in memory
+// and retries it, causing "Invalid Refresh Token" loops.
+export function resetSupabaseClient() {
+  _client = null;
 }
