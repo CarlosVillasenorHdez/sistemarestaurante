@@ -31,12 +31,25 @@ interface PrinterConfig {
   usbProductId?: number;
   usbDeviceName?: string;
   bluetoothAddress: string;
+  // Ticket layout
   paperWidth: 58 | 80;
   printCopies: number;
   autoCut: boolean;
   printLogo: boolean;
   printFooter: boolean;
   footerText: string;
+  // Ticket content toggles
+  showOrderNumber: boolean;
+  showMesa: boolean;
+  showMesero: boolean;
+  showDate: boolean;
+  showSubtotal: boolean;
+  showIva: boolean;
+  showDiscount: boolean;
+  showUnitPrice: boolean;
+  headerLine1: string;   // Línea extra bajo el nombre del restaurante
+  headerLine2: string;   // Ej: dirección, teléfono, RFC
+  separatorChar: string; // '-' | '=' | '*' | '.'
   isActive: boolean;
 }
 
@@ -47,12 +60,23 @@ const defaultPrinter: PrinterConfig = {
   port: 9100,
   usbPath: '',
   bluetoothAddress: '',
-  paperWidth: 80,
+  paperWidth: 58,
   printCopies: 1,
   autoCut: true,
   printLogo: true,
   printFooter: true,
   footerText: 'Gracias por su visita',
+  showOrderNumber: true,
+  showMesa: true,
+  showMesero: true,
+  showDate: true,
+  showSubtotal: true,
+  showIva: true,
+  showDiscount: true,
+  showUnitPrice: true,
+  headerLine1: '',
+  headerLine2: '',
+  separatorChar: '-',
   isActive: true,
 };
 
@@ -175,6 +199,17 @@ export default function ConfiguracionManagement() {
           printLogo: data.print_logo ?? true,
           printFooter: data.print_footer ?? true,
           footerText: data.footer_text || 'Gracias por su visita',
+          showOrderNumber: data.show_order_number ?? true,
+          showMesa:        data.show_mesa        ?? true,
+          showMesero:      data.show_mesero      ?? true,
+          showDate:        data.show_date        ?? true,
+          showSubtotal:    data.show_subtotal    ?? true,
+          showIva:         data.show_iva         ?? true,
+          showDiscount:    data.show_discount    ?? true,
+          showUnitPrice:   data.show_unit_price  ?? true,
+          headerLine1:     data.header_line1     || '',
+          headerLine2:     data.header_line2     || '',
+          separatorChar:   data.separator_char   || '-',
           isActive: data.is_active ?? true,
         };
         setPrinterConfig(cfg);
@@ -320,6 +355,17 @@ export default function ConfiguracionManagement() {
       print_logo: printerDraft.printLogo,
       print_footer: printerDraft.printFooter,
       footer_text: printerDraft.footerText,
+      show_order_number: printerDraft.showOrderNumber,
+      show_mesa:         printerDraft.showMesa,
+      show_mesero:       printerDraft.showMesero,
+      show_date:         printerDraft.showDate,
+      show_subtotal:     printerDraft.showSubtotal,
+      show_iva:          printerDraft.showIva,
+      show_discount:     printerDraft.showDiscount,
+      show_unit_price:   printerDraft.showUnitPrice,
+      header_line1:      printerDraft.headerLine1,
+      header_line2:      printerDraft.headerLine2,
+      separator_char:    printerDraft.separatorChar,
       is_active: printerDraft.isActive,
       updated_at: new Date().toISOString(),
     };
@@ -1196,6 +1242,114 @@ export default function ConfiguracionManagement() {
                         <input type="text" value={printerDraft.footerText} onChange={(e) => setPrinterDraft((p) => ({ ...p, footerText: e.target.value }))} className="w-full px-3 py-2 rounded-lg text-sm outline-none" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }} placeholder="Gracias por su visita" />
                       </div>
                     )}
+                  </div>
+
+                  {/* ── DISEÑO DEL TICKET ── */}
+                  <div className="rounded-xl p-5 mb-4" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
+                    <label className="block text-sm font-semibold mb-4" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                      🧾 Diseño del Ticket
+                    </label>
+
+                    {/* Encabezado extra */}
+                    <div className="space-y-2 mb-4">
+                      <div>
+                        <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.5)' }}>Línea de encabezado 1 (dirección, slogan...)</label>
+                        <input type="text" value={printerDraft.headerLine1}
+                          onChange={e => setPrinterDraft(p => ({ ...p, headerLine1: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                          style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                          placeholder="Av. Reforma 123, Col. Centro" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.5)' }}>Línea de encabezado 2 (tel, RFC, web...)</label>
+                        <input type="text" value={printerDraft.headerLine2}
+                          onChange={e => setPrinterDraft(p => ({ ...p, headerLine2: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                          style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                          placeholder="Tel: 55 1234 5678 · RFC: XAXX010101000" />
+                      </div>
+                    </div>
+
+                    {/* Separador */}
+                    <div className="mb-4">
+                      <label className="block text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Carácter separador de secciones</label>
+                      <div className="flex gap-2">
+                        {['-', '=', '*', '.', '─'].map(ch => (
+                          <button key={ch} onClick={() => setPrinterDraft(p => ({ ...p, separatorChar: ch }))}
+                            className="flex-1 py-2 rounded-lg text-sm font-mono font-bold transition-all"
+                            style={{
+                              backgroundColor: printerDraft.separatorChar === ch ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.04)',
+                              border: `1px solid ${printerDraft.separatorChar === ch ? 'rgba(245,158,11,0.4)' : '#2a3f5f'}`,
+                              color: printerDraft.separatorChar === ch ? '#f59e0b' : 'rgba(255,255,255,0.5)',
+                            }}>
+                            {ch.repeat(4)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Elementos a mostrar */}
+                    <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Elementos a incluir en el ticket</p>
+                    <div className="grid grid-cols-2 gap-x-4">
+                      {[
+                        { key: 'showOrderNumber', label: '# de orden' },
+                        { key: 'showDate',        label: 'Fecha y hora' },
+                        { key: 'showMesa',        label: 'Mesa' },
+                        { key: 'showMesero',      label: 'Mesero' },
+                        { key: 'showUnitPrice',   label: 'Precio unitario' },
+                        { key: 'showSubtotal',    label: 'Subtotal' },
+                        { key: 'showIva',         label: 'IVA desglosado' },
+                        { key: 'showDiscount',    label: 'Descuento' },
+                      ].map(({ key, label }) => (
+                        <div key={key} className="flex items-center justify-between py-2 border-b" style={{ borderColor: '#1e2d3d' }}>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>{label}</span>
+                          <button
+                            onClick={() => setPrinterDraft(p => ({ ...p, [key]: !(p as any)[key] }))}
+                            className="relative w-9 h-5 rounded-full transition-all duration-200"
+                            style={{ backgroundColor: (printerDraft as any)[key] ? '#f59e0b' : '#2a3f5f' }}>
+                            <span className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200"
+                              style={{ backgroundColor: '#fff', left: (printerDraft as any)[key] ? '17px' : '2px' }} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Vista previa del ticket */}
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                        Vista previa ({printerDraft.paperWidth}mm · {printerDraft.paperWidth === 58 ? '32 cols' : '48 cols'})
+                      </p>
+                      <div className="rounded-lg p-3 font-mono text-xs leading-relaxed overflow-x-auto"
+                        style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#d1fae5', whiteSpace: 'pre', maxHeight: '280px', overflowY: 'auto' }}>
+                        {(() => {
+                          const w = printerDraft.paperWidth === 58 ? 32 : 48;
+                          const sep = (printerDraft.separatorChar || '-').repeat(w);
+                          const center = (t: string) => t.slice(0, w).padStart(Math.floor((w + Math.min(t.length, w)) / 2)).padEnd(w);
+                          const two = (l: string, r: string) => { const g = w - l.length - r.length; return l + (g > 0 ? ' '.repeat(g) : ' ') + r; };
+                          const lines: string[] = [];
+                          lines.push(center('RESTAURANTE EL SABOR'));
+                          if (printerDraft.headerLine1) lines.push(center(printerDraft.headerLine1.slice(0, w)));
+                          if (printerDraft.headerLine2) lines.push(center(printerDraft.headerLine2.slice(0, w)));
+                          lines.push(sep);
+                          if (printerDraft.showOrderNumber || printerDraft.showDate) lines.push(two(printerDraft.showOrderNumber ? 'Orden: #0042' : '', printerDraft.showDate ? '29/03/26 14:30' : ''));
+                          if (printerDraft.showMesa || printerDraft.showMesero) lines.push(two(printerDraft.showMesa ? 'Mesa: 5' : '', printerDraft.showMesero ? 'Mesero: Ana' : ''));
+                          lines.push(sep);
+                          lines.push(two('PRODUCTO', 'IMPORTE'));
+                          lines.push(sep);
+                          lines.push(two('2x Tacos carne'.slice(0, w-8), '$170.00'));
+                          if (printerDraft.showUnitPrice) lines.push('   c/u $85.00');
+                          lines.push(two('1x Agua jamaica'.slice(0, w-8), '$35.00'));
+                          lines.push(sep);
+                          if (printerDraft.showSubtotal) lines.push(two('Subtotal:', '$205.00'));
+                          if (printerDraft.showIva) lines.push(two('IVA (16%):', '$32.80'));
+                          if (printerDraft.showDiscount) lines.push(two('Descuento:', '-$0.00'));
+                          lines.push(two('TOTAL:', '$237.80'));
+                          lines.push(sep);
+                          if (printerDraft.printFooter) lines.push(center(printerDraft.footerText || 'Gracias por su visita'));
+                          return lines.join('\n');
+                        })()}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Test result */}
