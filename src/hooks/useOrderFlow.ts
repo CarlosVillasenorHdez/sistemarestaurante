@@ -123,6 +123,7 @@ export function useOrderFlow() {
       status: 'abierta',
       kitchen_status: 'en_edicion',
       branch: branchName,
+      tenant_id: '00000000-0000-0000-0000-000000000001',
     });
 
     if (orderErr) {
