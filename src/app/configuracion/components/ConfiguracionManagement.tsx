@@ -1047,7 +1047,7 @@ export default function ConfiguracionManagement() {
                       )}
                       {printerDraft.connectionType === 'usb' && (
                         <div className="space-y-3">
-                          {/* Estado de conexión WebUSB */}
+                          {/* Estado de conexión */}
                           <div className="rounded-lg px-4 py-3 flex items-center gap-3" style={{
                             backgroundColor: printer.status === 'connected' ? 'rgba(34,197,94,0.1)' : printer.status === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)',
                             border: `1px solid ${printer.status === 'connected' ? 'rgba(34,197,94,0.3)' : printer.status === 'error' ? 'rgba(239,68,68,0.3)' : '#2a3f5f'}`,
@@ -1056,11 +1056,10 @@ export default function ConfiguracionManagement() {
                             <div className="flex-1 min-w-0">
                               {printer.status === 'connected' && printer.device ? (
                                 <>
-                                  <p className="text-xs font-semibold" style={{ color: '#4ade80' }}>Impresora conectada</p>
-                                  <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>{printer.device.name}</p>
-                                  <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                                    VID: {printer.device.vendorId.toString(16).toUpperCase().padStart(4,'0')} · PID: {printer.device.productId.toString(16).toUpperCase().padStart(4,'0')}
+                                  <p className="text-xs font-semibold" style={{ color: '#4ade80' }}>
+                                    Conectada vía {printer.transport === 'serial' ? 'Puerto Serial (COM)' : 'WebUSB'}
                                   </p>
+                                  <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>{printer.device.name}</p>
                                 </>
                               ) : printer.status === 'printing' ? (
                                 <p className="text-xs font-semibold" style={{ color: '#fbbf24' }}>Imprimiendo...</p>
@@ -1069,72 +1068,80 @@ export default function ConfiguracionManagement() {
                               ) : printer.error ? (
                                 <>
                                   <p className="text-xs font-semibold" style={{ color: '#f87171' }}>Error de conexión</p>
-                                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{printer.error}</p>
+                                  <p className="text-xs leading-relaxed" style={{ color: 'rgba(255,255,255,0.4)' }}>{printer.error}</p>
                                 </>
                               ) : (
                                 <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Sin impresora conectada</p>
                               )}
                             </div>
-                            {printer.status === 'connected' ? (
+                            {printer.status === 'connected' && (
                               <button onClick={printer.disconnect}
                                 className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0"
                                 style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
                                 Desconectar
                               </button>
-                            ) : (
-                              <button onClick={async () => {
-                                if (!printer.supported) { toast.error('WebUSB requiere Chrome o Edge'); return; }
-                                const ok = await printer.connect();
-                                if (ok && printer.device) {
-                                  setPrinterDraft(p => ({ ...p, usbDeviceName: printer.device!.name, usbVendorId: printer.device!.vendorId, usbProductId: printer.device!.productId }));
-                                }
-                              }}
-                                disabled={printer.status === 'connecting'}
-                                className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0 disabled:opacity-50"
-                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                                {printer.status === 'connecting' ? 'Conectando...' : 'Conectar impresora'}
-                              </button>
                             )}
                           </div>
 
-                          {/* Advertencia de compatibilidad */}
-                          {!printer.supported && (
-                            <div className="rounded-lg px-3 py-2 flex items-start gap-2" style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
-                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                                WebUSB requiere <strong style={{ color: '#f59e0b' }}>Chrome o Edge</strong>. Firefox y Safari no lo soportan.
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Advertencia de iframe / permissions policy */}
-                          {printer.supported && printer.status === 'error' && printer.error?.includes('política') && (
-                            <div className="rounded-lg px-3 py-2 space-y-2" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
-                              <div className="flex items-start gap-2">
-                                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
-                                <p className="text-xs font-semibold" style={{ color: '#f87171' }}>WebUSB bloqueado por el entorno</p>
+                          {/* Dos opciones de conexión */}
+                          {printer.status !== 'connected' && (
+                            <div className="grid grid-cols-2 gap-2">
+                              {/* WebUSB */}
+                              <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid #2a3f5f' }}>
+                                <p className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                  🔌 WebUSB
+                                </p>
+                                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                                  Requiere Zadig en Windows si da error de driver
+                                </p>
+                                <button
+                                  onClick={async () => {
+                                    const ok = await printer.connectUsb();
+                                    if (ok && printer.device) {
+                                      setPrinterDraft(p => ({ ...p, usbDeviceName: printer.device!.name, usbVendorId: printer.device!.vendorId, usbProductId: printer.device!.productId }));
+                                    }
+                                  }}
+                                  disabled={printer.status === 'connecting'}
+                                  className="w-full py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 transition-all"
+                                  style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                  Conectar USB
+                                </button>
                               </div>
-                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                                La app está cargando en un iframe que bloquea el acceso USB.
-                                Para usar la impresora, abre la app directamente:
-                              </p>
-                              <button
-                                onClick={() => window.open(window.location.href, '_blank')}
-                                className="w-full py-1.5 rounded-lg text-xs font-semibold"
-                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                                Abrir en pestaña nueva →
-                              </button>
+
+                              {/* Web Serial */}
+                              <div className="rounded-lg p-3 space-y-2" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid #2a3f5f' }}>
+                                <p className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.7)' }}>
+                                  📡 Puerto COM (Serial)
+                                </p>
+                                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                                  Sin drivers adicionales — funciona con el driver original
+                                </p>
+                                <button
+                                  onClick={() => printer.connectSerial()}
+                                  disabled={!printer.serialSupported || printer.status === 'connecting'}
+                                  className="w-full py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50 transition-all"
+                                  style={{ backgroundColor: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
+                                  title={!printer.serialSupported ? 'Web Serial requiere Chrome 89+ o Edge 89+' : ''}>
+                                  {!printer.serialSupported ? 'No disponible' : 'Conectar COM'}
+                                </button>
+                              </div>
                             </div>
                           )}
 
-                          {/* Info de dispositivo guardado */}
-                          {printerDraft.usbDeviceName && printer.status !== 'connected' && (
-                            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
-                              Último dispositivo: {printerDraft.usbDeviceName}
-                            </p>
+                          {/* Guía rápida MP-58N */}
+                          {printer.status !== 'connected' && (
+                            <div className="rounded-lg px-3 py-2" style={{ backgroundColor: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.15)' }}>
+                              <p className="text-xs font-semibold mb-1" style={{ color: 'rgba(245,158,11,0.8)' }}>💡 Para impresoras MP-58N y similares:</p>
+                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+                                <strong style={{ color: 'rgba(255,255,255,0.6)' }}>Opción recomendada:</strong> Prueba primero <em>Puerto COM</em> — funciona sin instalar nada extra.
+                                Si no aparece el puerto, prueba <em>WebUSB</em>. Si WebUSB da error de driver, descarga{' '}
+                                <strong style={{ color: '#f59e0b' }}>Zadig</strong> (zadig.akeo.ie) → selecciona la impresora → elige WinUSB → Replace Driver.
+                              </p>
+                            </div>
                           )}
                         </div>
                       )}
+
                       {printerDraft.connectionType === 'bluetooth' && (
                         <div>
                           <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Dirección Bluetooth (MAC)</label>
