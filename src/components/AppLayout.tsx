@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useDevice } from '@/hooks/useDevice';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 
@@ -12,7 +13,15 @@ interface AppLayoutProps {
 }
 
 export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
+  const device = useDevice();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Auto-collapse sidebar on tablet/mobile
+  useEffect(() => {
+    if (device.isTablet || device.isMobile) {
+      setSidebarCollapsed(true);
+    }
+  }, [device.type]);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (

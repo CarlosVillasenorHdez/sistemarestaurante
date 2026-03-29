@@ -247,7 +247,7 @@ export default function ReportesManagement() {
   const [hourlyData, setHourlyData] = useState<HourlySales[]>([]);
   const [staffPerformanceData, setStaffPerformanceData] = useState<StaffPerformance[]>([]);
   const [totalSalesData] = useState<{ periodo: string; ventas: number; meta: number }[]>([]);
-  const [basketPairs] = useState<BasketPair[]>([]);
+  const [basketPairs, setBasketPairs] = useState<BasketPair[]>([]);
 
   const [cogsData, setCogsData] = useState<DishCOGS[]>([]);
   const [peakChartData, setPeakChartData] = useState<{ hora: string; actual: number; predicho: number }[]>([]);
@@ -565,6 +565,80 @@ export default function ReportesManagement() {
     }
 
     loadCOGSAndPeak();
+  }, [dateRange, customStart, customEnd]);
+
+  // Market Basket Analysis — calcular pares reales desde order_items
+  useEffect(() => {
+    async function loadMarketBasket() {
+      const now = new Date();
+      let startISO: string;
+      if (dateRange === 'hoy') {
+        const s = new Date(now); s.setHours(0,0,0,0); startISO = s.toISOString();
+      } else if (dateRange === 'semana') {
+        const s = new Date(now); s.setDate(now.getDate() - 7); startISO = s.toISOString();
+      } else if (dateRange === 'mes') {
+        startISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      } else {
+        startISO = customStart ? new Date(customStart + 'T00:00:00').toISOString() : new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      }
+
+      const { data: rawItems } = await supabase
+        .from('order_items')
+        .select('order_id, name, qty, price')
+        .gte('created_at', startISO)
+        .limit(5000);
+
+      if (!rawItems || rawItems.length < 10) return;
+
+      const orderMap: Record<string, { name: string; price: number }[]> = {};
+      rawItems.forEach((item: any) => {
+        if (!orderMap[item.order_id]) orderMap[item.order_id] = [];
+        orderMap[item.order_id].push({ name: item.name, price: Number(item.price) });
+      });
+
+      const orders = Object.values(orderMap);
+      const totalOrders = orders.length;
+      if (totalOrders < 5) return;
+
+      const pairMap: Record<string, { count: number; pa: number; pb: number }> = {};
+      const itemCount: Record<string, number> = {};
+
+      orders.forEach((items) => {
+        const names = [...new Set(items.map((i: any) => i.name))];
+        names.forEach(n => { itemCount[n] = (itemCount[n] || 0) + 1; });
+        for (let i = 0; i < names.length; i++) {
+          for (let j = i + 1; j < names.length; j++) {
+            const key = [names[i], names[j]].sort().join('|||');
+            if (!pairMap[key]) pairMap[key] = {
+              count: 0,
+              pa: items.find((x: any) => x.name === names[i])?.price || 0,
+              pb: items.find((x: any) => x.name === names[j])?.price || 0,
+            };
+            pairMap[key].count += 1;
+          }
+        }
+      });
+
+      const pairs: BasketPair[] = Object.entries(pairMap)
+        .filter(([, v]) => v.count >= 2)
+        .map(([key, v]) => {
+          const [a, b] = key.split('|||');
+          const confAB = v.count / (itemCount[a] || 1);
+          const lift = confAB / ((itemCount[b] || 1) / totalOrders);
+          return {
+            producto_a: a, producto_b: b,
+            frecuencia: v.count,
+            confianza: Math.round(confAB * 100) / 100,
+            lift: Math.round(lift * 100) / 100,
+            precio_a: v.pa, precio_b: v.pb,
+          };
+        })
+        .sort((a, b) => b.frecuencia - a.frecuencia)
+        .slice(0, 15);
+
+      if (pairs.length > 0) setBasketPairs(pairs);
+    }
+    loadMarketBasket();
   }, [dateRange, customStart, customEnd]);
 
   // Fetch real payroll from employees table
@@ -1040,9 +1114,18 @@ export default function ReportesManagement() {
             </table>
           </div>
 
-          <div className="mt-4 p-3 rounded-lg text-xs text-gray-600" style={{ backgroundColor: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
-            <strong>💡 Recomendación:</strong> Considera crear combos de "Tacos de Carne Asada + Agua de Jamaica" y "Guacamole + Quesadillas" — tienen la mayor asociación y podrían aumentar el ticket promedio.
-          </div>
+          {basketPairs.length > 0 ? (
+            <div className="mt-4 p-3 rounded-lg text-xs text-gray-600" style={{ backgroundColor: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
+              <strong>💡 Recomendación:</strong> El combo más frecuente es{' '}
+              <strong>"{basketPairs[0].producto_a} + {basketPairs[0].producto_b}"</strong>{' '}
+              — se pidieron juntos {basketPairs[0].frecuencia} veces (lift {basketPairs[0].lift.toFixed(1)}x).
+              {basketPairs[1] && <> También considera <strong>"{basketPairs[1].producto_a} + {basketPairs[1].producto_b}"</strong>.</>}
+            </div>
+          ) : (
+            <div className="mt-4 p-3 rounded-lg text-xs text-gray-500" style={{ backgroundColor: '#f8fafc', borderLeft: '3px solid #e5e7eb' }}>
+              Sin suficientes datos para análisis de canasta en este período.
+            </div>
+          )}
         </div>
 
         {/* ════════════════════════════════════════════════════════════════════ */}

@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import { createClient } from '@/lib/supabase/client';
 import { ChefHat, Clock, CheckCircle, AlertCircle, RefreshCw, Bell, Flame, Coffee, UtensilsCrossed, Play, Check, X, GripVertical } from 'lucide-react';
+import { useDevice } from '@/hooks/useDevice';
 import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -194,6 +195,7 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function KitchenModule() {
+  const device = useDevice();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -469,7 +471,13 @@ export default function KitchenModule() {
               <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#f59e0b', borderTopColor: 'transparent' }} />
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-4 h-full">
+            <div className={`grid gap-4 h-full ${
+                device.isMobile || (device.isTablet && device.orientation === 'portrait')
+                  ? 'grid-cols-1 overflow-y-auto'
+                  : device.isTablet && device.orientation === 'landscape'
+                  ? 'grid-cols-2'
+                  : 'grid-cols-3'
+              }`}>
               {COLUMNS.map((col) => {
                 const cfg = STATUS_CONFIG[col];
                 const colOrders = columnOrders(col);

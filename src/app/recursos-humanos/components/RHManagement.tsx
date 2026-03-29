@@ -10,7 +10,24 @@ import Icon from '@/components/ui/AppIcon';
 
 type Estado = 'pendiente' | 'aprobado' | 'rechazado';
 type PermTipo = 'personal' | 'medico' | 'familiar' | 'otro';
-type ActiveTab = 'vacaciones' | 'permisos' | 'tiempos_extras' | 'resumen';
+type IncapTipo = 'enfermedad_general' | 'accidente_trabajo' | 'maternidad' | 'paternidad' | 'covid' | 'otro';
+
+interface Incapacidad {
+  id: string;
+  employee_id: string;
+  employeeName?: string;
+  employeeRole?: string;
+  tipo: IncapTipo;
+  fecha_inicio: string;
+  fecha_fin: string;
+  dias: number;
+  folio_imss: string;
+  porcentaje_salario: number;
+  estado: Estado;
+  notas: string | null;
+  created_at: string;
+}
+type ActiveTab = 'vacaciones' | 'permisos' | 'tiempos_extras' | 'incapacidades' | 'resumen';
 
 interface Employee {
   id: string;
@@ -125,17 +142,19 @@ export default function RHManagement() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [vacaciones, setVacaciones] = useState<Vacacion[]>([]);
   const [permisos, setPermisos] = useState<Permiso[]>([]);
+  const [incapacidades, setIncapacidades] = useState<Incapacidad[]>([]);
   const [tiemposExtras, setTiemposExtras] = useState<TiempoExtra[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState<'Todos' | Estado>('Todos');
-  const [showModal, setShowModal] = useState<null | 'vacacion' | 'permiso' | 'tiempo_extra'>(null);
+  const [showModal, setShowModal] = useState<null | 'vacacion' | 'permiso' | 'tiempo_extra' | 'incapacidad'>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Form states
   const [vacForm, setVacForm] = useState({ employee_id: '', fecha_inicio: '', fecha_fin: '', notas: '' });
   const [permForm, setPermForm] = useState({ employee_id: '', tipo: 'personal' as PermTipo, fecha: '', horas: '1', con_goce: true, motivo: '' });
+  const [incapForm, setIncapForm] = useState({ employee_id: '', tipo: 'enfermedad_general' as IncapTipo, fecha_inicio: '', fecha_fin: '', folio_imss: '', porcentaje_salario: 60, notas: '' });
   const [teForm, setTeForm] = useState({ employee_id: '', fecha: '', horas: '1', factor_pago: '1.5', descripcion: '' });
 
   const loadData = useCallback(async () => {
@@ -144,12 +163,18 @@ export default function RHManagement() {
       const [empRes, vacRes, permRes, teRes] = await Promise.all([
         supabase.from('employees').select('id, name, role, salary, salary_frequency').eq('status', 'activo').order('name'),
         supabase.from('rh_vacaciones').select('*, employees(name, role)').order('created_at', { ascending: false }),
+        supabase.from('rh_incapacidades').select('*, employees(name, role)').order('created_at', { ascending: false }),
         supabase.from('rh_permisos').select('*, employees(name, role)').order('created_at', { ascending: false }),
         supabase.from('rh_tiempos_extras').select('*, employees(name, role, salary, salary_frequency)').order('created_at', { ascending: false }),
       ]);
       if (empRes.data) setEmployees(empRes.data as Employee[]);
       if (vacRes.data) setVacaciones(vacRes.data as Vacacion[]);
       if (permRes.data) setPermisos(permRes.data as Permiso[]);
+      // incapacidades — puede que la tabla no exista aún
+      try {
+        const incapRes = await supabase.from('rh_incapacidades').select('*, employees(name, role)').order('created_at', { ascending: false });
+        if (incapRes.data) setIncapacidades(incapRes.data.map((i: any) => ({ ...i, employeeName: i.employees?.name, employeeRole: i.employees?.role })));
+      } catch { /* tabla no existe aún */ }
       if (teRes.data) setTiemposExtras(teRes.data as TiempoExtra[]);
     } catch (e: any) {
       setError(e.message);
@@ -268,8 +293,39 @@ export default function RHManagement() {
     { key: 'vacaciones', label: 'Vacaciones', icon: Umbrella },
     { key: 'permisos', label: 'Permisos', icon: FileText },
     { key: 'tiempos_extras', label: 'Tiempos Extras', icon: Clock },
+    { key: 'incapacidades', label: 'Incapacidades', icon: AlertCircle },
     { key: 'resumen', label: 'Resumen Nómina', icon: TrendingUp },
   ];
+
+  async function saveIncapacidad() {
+    if (!incapForm.employee_id || !incapForm.fecha_inicio || !incapForm.fecha_fin) {
+      alert('Completa los campos obligatorios'); return;
+    }
+    setSaving(true);
+    const dias = Math.ceil((new Date(incapForm.fecha_fin).getTime() - new Date(incapForm.fecha_inicio).getTime()) / 86400000) + 1;
+    try {
+      const { error } = await supabase.from('rh_incapacidades').insert({
+        employee_id: incapForm.employee_id,
+        tipo: incapForm.tipo,
+        fecha_inicio: incapForm.fecha_inicio,
+        fecha_fin: incapForm.fecha_fin,
+        dias,
+        folio_imss: incapForm.folio_imss,
+        porcentaje_salario: incapForm.porcentaje_salario,
+        notas: incapForm.notas,
+        estado: 'pendiente',
+      });
+      if (error) throw error;
+      setShowModal(null);
+      // Reload
+      const res = await supabase.from('rh_incapacidades').select('*, employees(name, role)').order('created_at', { ascending: false });
+      if (res.data) setIncapacidades(res.data.map((i: any) => ({ ...i, employeeName: i.employees?.name, employeeRole: i.employees?.role })));
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const inputCls = 'w-full px-3 py-2 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500';
   const inputStyle = { backgroundColor: '#0f1e35', border: '1px solid #243f72' };
@@ -513,6 +569,80 @@ export default function RHManagement() {
               </div>
             )}
 
+            {/* ── INCAPACIDADES ── */}
+            {activeTab === 'incapacidades' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-sm" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {incapacidades.length} incapacidad{incapacidades.length !== 1 ? 'es' : ''} registrada{incapacidades.length !== 1 ? 's' : ''}
+                  </p>
+                  <button
+                    onClick={() => { setIncapForm({ employee_id: '', tipo: 'enfermedad_general', fecha_inicio: '', fecha_fin: '', folio_imss: '', porcentaje_salario: 60, notas: '' }); setShowModal('incapacidad'); }}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold"
+                    style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}
+                  >
+                    <Plus size={14} /> Registrar incapacidad
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid #243f72' }}>
+                        {['Empleado', 'Tipo', 'Inicio', 'Fin', 'Días', 'Folio IMSS', '% Salario', 'Estado'].map(h => (
+                          <th key={h} className="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.4)' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incapacidades.length === 0 ? (
+                        <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                          Sin incapacidades registradas
+                        </td></tr>
+                      ) : incapacidades.map((inc) => {
+                        const dias = inc.fecha_inicio && inc.fecha_fin
+                          ? Math.ceil((new Date(inc.fecha_fin).getTime() - new Date(inc.fecha_inicio).getTime()) / 86400000) + 1
+                          : inc.dias || 0;
+                        const tipoLabels: Record<IncapTipo, string> = {
+                          enfermedad_general: 'Enfermedad general',
+                          accidente_trabajo: 'Accidente de trabajo',
+                          maternidad: 'Maternidad',
+                          paternidad: 'Paternidad',
+                          covid: 'COVID-19',
+                          otro: 'Otro',
+                        };
+                        const estadoColors: Record<Estado, { bg: string; color: string }> = {
+                          pendiente: { bg: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+                          aprobado:  { bg: 'rgba(34,197,94,0.15)',  color: '#22c55e' },
+                          rechazado: { bg: 'rgba(239,68,68,0.15)',  color: '#ef4444' },
+                        };
+                        const ec = estadoColors[inc.estado];
+                        return (
+                          <tr key={inc.id} className="border-b" style={{ borderColor: '#1e2d45' }}>
+                            <td className="px-3 py-3">
+                              <p className="font-semibold text-white text-xs">{inc.employeeName}</p>
+                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{inc.employeeRole}</p>
+                            </td>
+                            <td className="px-3 py-3 text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>{tipoLabels[inc.tipo]}</td>
+                            <td className="px-3 py-3 text-xs font-mono" style={{ color: 'rgba(255,255,255,0.6)' }}>{inc.fecha_inicio}</td>
+                            <td className="px-3 py-3 text-xs font-mono" style={{ color: 'rgba(255,255,255,0.6)' }}>{inc.fecha_fin}</td>
+                            <td className="px-3 py-3 text-xs font-bold text-white">{dias}d</td>
+                            <td className="px-3 py-3 text-xs font-mono" style={{ color: 'rgba(255,255,255,0.5)' }}>{inc.folio_imss || '—'}</td>
+                            <td className="px-3 py-3 text-xs font-bold" style={{ color: '#f59e0b' }}>{inc.porcentaje_salario}%</td>
+                            <td className="px-3 py-3">
+                              <span className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize"
+                                style={{ backgroundColor: ec.bg, color: ec.color }}>
+                                {inc.estado}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
             {/* ── RESUMEN NÓMINA ── */}
             {activeTab === 'resumen' && (
               <div className="space-y-4">
@@ -702,6 +832,70 @@ export default function RHManagement() {
               <button onClick={() => setShowModal(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/10 transition-colors" style={{ border: '1px solid #243f72' }}>Cancelar</button>
               <button onClick={saveTiempoExtra} disabled={saving || !teForm.employee_id || !teForm.fecha} className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50" style={{ backgroundColor: '#1B3A6B', color: '#f59e0b', border: '1px solid #243f72' }}>
                 {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── MODAL: Incapacidad ── */}
+      {showModal === 'incapacidad' && (
+        <Modal title="Registrar Incapacidad" onClose={() => setShowModal(null)}>
+          <div className="space-y-3">
+            <div>
+              <label className={labelCls}>Empleado *</label>
+              <select value={incapForm.employee_id} onChange={(e) => setIncapForm({ ...incapForm, employee_id: e.target.value })} className={inputCls} style={inputStyle}>
+                <option value="">Seleccionar empleado...</option>
+                {employees.map((e) => <option key={e.id} value={e.id}>{e.name} — {e.role}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Tipo de incapacidad *</label>
+              <select value={incapForm.tipo} onChange={(e) => setIncapForm({ ...incapForm, tipo: e.target.value as IncapTipo })} className={inputCls} style={inputStyle}>
+                <option value="enfermedad_general">Enfermedad general</option>
+                <option value="accidente_trabajo">Accidente de trabajo</option>
+                <option value="maternidad">Maternidad</option>
+                <option value="paternidad">Paternidad</option>
+                <option value="covid">COVID-19</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Fecha inicio *</label>
+                <input type="date" value={incapForm.fecha_inicio} onChange={(e) => setIncapForm({ ...incapForm, fecha_inicio: e.target.value })} className={inputCls} style={inputStyle} />
+              </div>
+              <div>
+                <label className={labelCls}>Fecha fin *</label>
+                <input type="date" value={incapForm.fecha_fin} onChange={(e) => setIncapForm({ ...incapForm, fecha_fin: e.target.value })} className={inputCls} style={inputStyle} />
+              </div>
+            </div>
+            {incapForm.fecha_inicio && incapForm.fecha_fin && (
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>
+                Días: {Math.max(0, Math.ceil((new Date(incapForm.fecha_fin).getTime() - new Date(incapForm.fecha_inicio).getTime()) / 86400000) + 1)}
+              </p>
+            )}
+            <div>
+              <label className={labelCls}>Folio IMSS</label>
+              <input value={incapForm.folio_imss} onChange={(e) => setIncapForm({ ...incapForm, folio_imss: e.target.value })} className={inputCls} style={inputStyle} placeholder="Número de folio del certificado" />
+            </div>
+            <div>
+              <label className={labelCls}>% de salario a pagar ({incapForm.porcentaje_salario}%)</label>
+              <input type="range" min={0} max={100} step={5} value={incapForm.porcentaje_salario}
+                onChange={(e) => setIncapForm({ ...incapForm, porcentaje_salario: Number(e.target.value) })}
+                className="w-full" />
+              <div className="flex justify-between text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                <span>0% (sin goce)</span><span>60% (IMSS)</span><span>100% (goce completo)</span>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Notas / Diagnóstico</label>
+              <textarea value={incapForm.notas} onChange={(e) => setIncapForm({ ...incapForm, notas: e.target.value })} rows={2} className={inputCls} style={inputStyle} placeholder="Descripción del diagnóstico, observaciones..." />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setShowModal(null)} className="flex-1 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/10 transition-colors" style={{ border: '1px solid #243f72' }}>Cancelar</button>
+              <button onClick={saveIncapacidad} disabled={saving || !incapForm.employee_id || !incapForm.fecha_inicio || !incapForm.fecha_fin} className="flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50" style={{ backgroundColor: '#1B3A6B', color: '#f59e0b', border: '1px solid #243f72' }}>
+                {saving ? 'Guardando...' : 'Registrar'}
               </button>
             </div>
           </div>
