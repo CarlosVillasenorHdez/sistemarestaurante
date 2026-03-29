@@ -1,11 +1,15 @@
 'use client';
 
-// WebUSB type declarations (not in default TS lib)
+// ─── Type declarations for WebUSB and Web Serial ──────────────────────────────
 declare global {
   interface Navigator {
     usb: {
       requestDevice(options: { filters: object[] }): Promise<USBDevice>;
       getDevices(): Promise<USBDevice[]>;
+    };
+    serial: {
+      requestPort(options?: { filters?: object[] }): Promise<SerialPort>;
+      getPorts(): Promise<SerialPort[]>;
     };
   }
   interface USBDevice {
@@ -19,46 +23,25 @@ declare global {
     claimInterface(interfaceNumber: number): Promise<void>;
     transferOut(endpointNumber: number, data: ArrayBuffer | ArrayBufferView): Promise<USBOutTransferResult>;
   }
-  interface USBConfiguration {
-    interfaces: USBInterface[];
-  }
-  interface USBInterface {
-    interfaceNumber: number;
-    alternates: USBAlternateInterface[];
-  }
-  interface USBAlternateInterface {
-    interfaceClass: number;
-    endpoints: USBEndpoint[];
-  }
-  interface USBEndpoint {
-    endpointNumber: number;
-    direction: 'in' | 'out';
-    type: 'bulk' | 'interrupt' | 'isochronous';
-  }
-  interface USBOutTransferResult {
-    bytesWritten: number;
-    status: 'ok' | 'stall' | 'babble';
+  interface USBConfiguration { interfaces: USBInterface[]; }
+  interface USBInterface { interfaceNumber: number; alternates: USBAlternateInterface[]; }
+  interface USBAlternateInterface { interfaceClass: number; endpoints: USBEndpoint[]; }
+  interface USBEndpoint { endpointNumber: number; direction: 'in' | 'out'; type: 'bulk' | 'interrupt' | 'isochronous'; }
+  interface USBOutTransferResult { bytesWritten: number; status: 'ok' | 'stall' | 'babble'; }
+  interface SerialPort {
+    open(options: { baudRate: number }): Promise<void>;
+    close(): Promise<void>;
+    readonly writable: WritableStream<Uint8Array> | null;
+    getInfo(): { usbVendorId?: number; usbProductId?: number };
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// usePrinter — WebUSB + ESC/POS para impresoras térmicas USB
-//
-// Navegadores compatibles: Chrome 61+, Edge 79+, Opera 48+
-// Firefox y Safari NO soportan WebUSB.
-//
-// Cómo funciona:
-//   1. navigator.usb.requestDevice() — muestra el diálogo del navegador para
-//      seleccionar el dispositivo USB. Solo se puede llamar desde un gesto
-//      del usuario (click). El permiso queda guardado para sesiones futuras.
-//   2. usePrinter.connect() — solicita permiso y conecta
-//   3. usePrinter.print(commands) — envía bytes ESC/POS al endpoint bulk
-//   4. Helpers: printTicket(data), printTest()
-// ═══════════════════════════════════════════════════════════════════════════
-
 import { useState, useCallback, useRef, useEffect } from 'react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export type PrinterStatus = 'disconnected' | 'connecting' | 'connected' | 'printing' | 'error';
+export type PrinterTransport = 'usb' | 'serial' | null;
 
 export interface TicketData {
   restaurantName: string;
@@ -80,44 +63,36 @@ export interface TicketData {
   copies?: number;
 }
 
-// ─── ESC/POS helpers ─────────────────────────────────────────────────────────
+// ─── ESC/POS helpers ──────────────────────────────────────────────────────────
 
 const ESC = 0x1b;
 const GS  = 0x1d;
 
 const CMD = {
-  INIT:           [ESC, 0x40],
-  CUT:            [GS, 0x56, 0x41, 0x00],   // full cut
-  PARTIAL_CUT:    [GS, 0x56, 0x42, 0x01],   // partial cut
-  ALIGN_LEFT:     [ESC, 0x61, 0x00],
-  ALIGN_CENTER:   [ESC, 0x61, 0x01],
-  ALIGN_RIGHT:    [ESC, 0x61, 0x02],
-  BOLD_ON:        [ESC, 0x45, 0x01],
-  BOLD_OFF:       [ESC, 0x45, 0x00],
-  DOUBLE_HEIGHT:  [ESC, 0x21, 0x10],
-  DOUBLE_SIZE:    [ESC, 0x21, 0x30],
-  NORMAL_SIZE:    [ESC, 0x21, 0x00],
-  LF:             [0x0a],
-  CR:             [0x0d],
+  INIT:         [ESC, 0x40],
+  CUT:          [GS, 0x56, 0x41, 0x00],
+  PARTIAL_CUT:  [GS, 0x56, 0x42, 0x01],
+  ALIGN_LEFT:   [ESC, 0x61, 0x00],
+  ALIGN_CENTER: [ESC, 0x61, 0x01],
+  BOLD_ON:      [ESC, 0x45, 0x01],
+  BOLD_OFF:     [ESC, 0x45, 0x00],
+  DOUBLE_HEIGHT:[ESC, 0x21, 0x10],
+  DOUBLE_SIZE:  [ESC, 0x21, 0x30],
+  NORMAL_SIZE:  [ESC, 0x21, 0x00],
+  LF:           [0x0a],
 };
 
 function encode(text: string): Uint8Array {
-  // Latin-1 encoding compatible with most thermal printers
   const bytes: number[] = [];
   for (const ch of text) {
     const code = ch.charCodeAt(0);
-    bytes.push(code < 256 ? code : 0x3f); // '?' for unmappable chars
+    bytes.push(code < 256 ? code : 0x3f);
   }
   return new Uint8Array(bytes);
 }
 
 function bytes(...cmds: number[][]): Uint8Array {
-  const flat = cmds.flat();
-  return new Uint8Array(flat);
-}
-
-function line(text: string, width = 48): Uint8Array {
-  return encode(text.padEnd(width, ' ').slice(0, width) + '\n');
+  return new Uint8Array(cmds.flat());
 }
 
 function twoCol(left: string, right: string, width = 48): Uint8Array {
@@ -134,22 +109,14 @@ export function buildTicket(data: TicketData): Uint8Array {
   const chunks: Uint8Array[] = [];
   const add = (...u: Uint8Array[]) => chunks.push(...u);
 
-  // Init
   add(bytes(CMD.INIT));
-
-  // Header — restaurant name
   add(bytes(CMD.ALIGN_CENTER, CMD.DOUBLE_SIZE, CMD.BOLD_ON));
   add(encode((data.restaurantName || 'RESTAURANTE').slice(0, width) + '\n'));
   add(bytes(CMD.NORMAL_SIZE, CMD.BOLD_OFF));
-
-  if (data.branchName) {
-    add(encode(data.branchName.slice(0, width) + '\n'));
-  }
-
+  if (data.branchName) add(encode(data.branchName.slice(0, width) + '\n'));
   add(bytes(CMD.ALIGN_LEFT));
   add(separator(width));
 
-  // Order info
   const now = new Date();
   const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' });
   const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
@@ -157,7 +124,6 @@ export function buildTicket(data: TicketData): Uint8Array {
   add(twoCol(`Mesa: ${data.mesa}`, `Mesero: ${data.mesero}`, width));
   add(separator(width));
 
-  // Items
   add(bytes(CMD.BOLD_ON));
   add(twoCol('PRODUCTO', 'IMPORTE', width));
   add(bytes(CMD.BOLD_OFF));
@@ -168,31 +134,20 @@ export function buildTicket(data: TicketData): Uint8Array {
     const name = `${item.qty}x ${item.name}`.slice(0, nameMax);
     const price = `$${(item.qty * item.price).toFixed(2)}`;
     add(twoCol(name, price, width));
-    // Unit price if qty > 1
-    if (item.qty > 1) {
-      add(encode(`   c/u $${item.price.toFixed(2)}\n`));
-    }
+    if (item.qty > 1) add(encode(`   c/u $${item.price.toFixed(2)}\n`));
   }
 
   add(separator(width));
-
-  // Totals
-  if (data.discount > 0) {
-    add(twoCol('Subtotal:', `$${data.subtotal.toFixed(2)}`, width));
-    add(twoCol('Descuento:', `-$${data.discount.toFixed(2)}`, width));
-  }
+  if (data.discount > 0) add(twoCol('Descuento:', `-$${data.discount.toFixed(2)}`, width));
   add(twoCol('IVA (16%):', `$${data.iva.toFixed(2)}`, width));
-
   add(bytes(CMD.BOLD_ON, CMD.DOUBLE_HEIGHT));
   add(twoCol('TOTAL:', `$${data.total.toFixed(2)}`, width));
   add(bytes(CMD.NORMAL_SIZE, CMD.BOLD_OFF));
-
   add(separator(width));
 
-  // Payment
   add(twoCol('Método de pago:', data.payMethod === 'efectivo' ? 'Efectivo' : 'Tarjeta', width));
   if (data.payMethod === 'efectivo' && data.amountPaid !== undefined) {
-    add(twoCol('Efectivo recibido:', `$${data.amountPaid.toFixed(2)}`, width));
+    add(twoCol('Recibido:', `$${data.amountPaid.toFixed(2)}`, width));
     if (data.change !== undefined && data.change > 0) {
       add(bytes(CMD.BOLD_ON));
       add(twoCol('Cambio:', `$${data.change.toFixed(2)}`, width));
@@ -200,199 +155,248 @@ export function buildTicket(data: TicketData): Uint8Array {
     }
   }
 
-  // Footer
-  add(bytes(CMD.ALIGN_CENTER));
-  add(bytes(CMD.LF));
+  add(bytes(CMD.ALIGN_CENTER, CMD.LF));
   add(encode((data.footer || 'Gracias por su visita') + '\n'));
   add(encode('* * *\n'));
   add(bytes(CMD.LF, CMD.LF, CMD.LF));
+  if (data.autoCut !== false) add(bytes(CMD.PARTIAL_CUT));
 
-  // Cut
-  if (data.autoCut !== false) {
-    add(bytes(CMD.PARTIAL_CUT));
-  }
-
-  // Merge all chunks
   const total = chunks.reduce((s, c) => s + c.length, 0);
   const result = new Uint8Array(total);
   let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
+  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
   return result;
 }
 
 export function buildTestTicket(width: 58 | 80 = 80): Uint8Array {
   return buildTicket({
     restaurantName: 'PRUEBA DE IMPRESORA',
-    branchName: 'SistemaRest',
+    branchName: 'SistemaRest — MP-58N',
     orderNumber: 'TEST-001',
     mesa: 'Mesa 1',
     mesero: 'Administrador',
     items: [
-      { name: 'Tacos de carne', qty: 2, price: 85 },
+      { name: 'Tacos de carne asada', qty: 2, price: 85 },
       { name: 'Agua de jamaica', qty: 1, price: 35 },
       { name: 'Quesadillas', qty: 1, price: 65 },
     ],
-    subtotal: 270,
-    iva: 43.2,
-    discount: 0,
-    total: 313.2,
-    payMethod: 'efectivo',
-    amountPaid: 350,
-    change: 36.8,
+    subtotal: 270, iva: 43.2, discount: 0, total: 313.2,
+    payMethod: 'efectivo', amountPaid: 350, change: 36.8,
     footer: '¡Impresora configurada correctamente!',
-    paperWidth: width,
-    autoCut: true,
-    copies: 1,
+    paperWidth: width, autoCut: true, copies: 1,
   });
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+// ─── Device info ──────────────────────────────────────────────────────────────
 
 export interface PrinterDevice {
   vendorId: number;
   productId: number;
   name: string;
-  raw: USBDevice;
+  transport: PrinterTransport;
+  raw: USBDevice | SerialPort;
 }
 
+// ─── Hook ─────────────────────────────────────────────────────────────────────
+
 export function usePrinter() {
-  const [status, setStatus] = useState<PrinterStatus>('disconnected');
-  const [device, setDevice] = useState<PrinterDevice | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus]     = useState<PrinterStatus>('disconnected');
+  const [device, setDevice]     = useState<PrinterDevice | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+  const [transport, setTransport] = useState<PrinterTransport>(null);
   const [supported, setSupported] = useState(false);
-  const deviceRef = useRef<USBDevice | null>(null);
+  const [serialSupported, setSerialSupported] = useState(false);
+
+  const usbDeviceRef    = useRef<USBDevice | null>(null);
+  const serialPortRef   = useRef<SerialPort | null>(null);
+  const serialWriterRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
 
   useEffect(() => {
-    setSupported(typeof navigator !== 'undefined' && 'usb' in navigator);
+    const hasUsb    = typeof navigator !== 'undefined' && 'usb'    in navigator;
+    const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
+    setSupported(hasUsb || hasSerial);
+    setSerialSupported(hasSerial);
 
-    // Auto-reconnect to previously paired device
-    if (typeof navigator !== 'undefined' && 'usb' in navigator) {
+    // Auto-reconnect via USB
+    if (hasUsb) {
       try {
         navigator.usb.getDevices().then(async (devices) => {
           if (devices.length > 0) {
-            try {
-              await openDevice(devices[0]);
-            } catch { /* silent */ }
+            try { await openUsbDevice(devices[0]); } catch { /* silent */ }
           }
-        }).catch(() => { /* USB access denied by permissions policy */ });
-      } catch { /* USB access denied by permissions policy */ }
+        }).catch(() => {});
+      } catch { /* permissions policy */ }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function openDevice(raw: USBDevice) {
+  // ── USB ────────────────────────────────────────────────────────────────────
+
+  async function openUsbDevice(raw: USBDevice) {
     await raw.open();
-    if (raw.configuration === null) {
-      await raw.selectConfiguration(1);
-    }
-    // Find the printer interface (class 7 = printer, or first available)
+    if (raw.configuration === null) await raw.selectConfiguration(1);
+
     const iface = raw.configuration?.interfaces.find(
       (i) => i.alternates[0]?.interfaceClass === 7
     ) ?? raw.configuration?.interfaces[0];
 
-    if (!iface) throw new Error('No se encontró interfaz de impresora en el dispositivo');
-
+    if (!iface) throw new Error('No se encontró interfaz de impresora en el dispositivo USB');
     await raw.claimInterface(iface.interfaceNumber);
-    deviceRef.current = raw;
+    usbDeviceRef.current = raw;
 
     setDevice({
       vendorId: raw.vendorId,
       productId: raw.productId,
-      name: raw.productName || `USB ${raw.vendorId.toString(16)}:${raw.productId.toString(16)}`,
+      name: raw.productName || `USB ${raw.vendorId.toString(16).toUpperCase().padStart(4,'0')}:${raw.productId.toString(16).toUpperCase().padStart(4,'0')}`,
+      transport: 'usb',
       raw,
     });
+    setTransport('usb');
     setStatus('connected');
     setError(null);
   }
 
-  const connect = useCallback(async () => {
-    if (!supported) {
-      setError('WebUSB no está disponible. Usa Chrome o Edge.');
+  const connectUsb = useCallback(async (): Promise<boolean> => {
+    if (!('usb' in navigator)) {
+      setError('WebUSB no disponible en este navegador. Usa Chrome o Edge.');
       return false;
     }
     setStatus('connecting');
     setError(null);
     try {
-      // Show browser device picker — common thermal printer vendors
-      // filters: [] muestra TODOS los dispositivos USB — necesario para impresoras
-      // genéricas que no reportan clase 7 o tienen VendorID desconocido
       const raw = await navigator.usb.requestDevice({ filters: [] });
-      await openDevice(raw);
+      await openUsbDevice(raw);
       return true;
     } catch (err: any) {
       if (err?.name === 'NotFoundError') {
-        // User cancelled the picker — not an error
         setStatus('disconnected');
       } else if (err?.message?.includes('permissions policy') || err?.message?.includes('disallowed')) {
-        setError(
-          'WebUSB bloqueado por política de permisos. ' +
-          'Solución: Abre la app directamente en tu navegador (no en un iframe). ' +
-          'URL: ' + (typeof window !== 'undefined' ? window.location.origin : '')
-        );
+        setError('WebUSB bloqueado — abre la app en una pestaña directa (no en un iframe).');
         setStatus('error');
       } else if (err?.name === 'SecurityError') {
         setError(
-          'No se pudo acceder al dispositivo USB. Posibles causas: ' +
-          '(1) El driver del dispositivo interfiere con WebUSB — prueba desconectar y reconectar la impresora, ' +
-          '(2) Otro programa tiene tomado el puerto USB, ' +
-          '(3) En Windows, instala Zadig para cambiar el driver a WinUSB.'
+          'Driver bloqueando WebUSB. Opciones: ' +
+          '(A) Instala Zadig (zadig.akeo.ie) → selecciona la impresora → elige WinUSB → Replace Driver. ' +
+          '(B) Usa "Conectar por Serial (COM)" si tu impresora aparece como puerto COM en Windows.'
         );
         setStatus('error');
       } else {
-        setError(err?.message || 'Error al conectar con la impresora');
+        setError(err?.message || 'Error al conectar por USB');
         setStatus('error');
       }
       return false;
     }
-  }, [supported]);
+  }, []);
+
+  // ── Serial (Web Serial API — COM port) ────────────────────────────────────
+
+  const connectSerial = useCallback(async (): Promise<boolean> => {
+    if (!('serial' in navigator)) {
+      setError('Web Serial no disponible. Usa Chrome 89+ o Edge 89+.');
+      return false;
+    }
+    setStatus('connecting');
+    setError(null);
+    try {
+      const port = await navigator.serial.requestPort({ filters: [] });
+      await port.open({ baudRate: 9600 });
+
+      if (!port.writable) throw new Error('Puerto serial no tiene stream de escritura');
+
+      serialPortRef.current = port;
+      serialWriterRef.current = port.writable.getWriter();
+      const info = port.getInfo();
+
+      setDevice({
+        vendorId: info.usbVendorId ?? 0,
+        productId: info.usbProductId ?? 0,
+        name: `Puerto Serie (COM) — VID:${(info.usbVendorId ?? 0).toString(16).toUpperCase().padStart(4,'0')}`,
+        transport: 'serial',
+        raw: port,
+      });
+      setTransport('serial');
+      setStatus('connected');
+      setError(null);
+      return true;
+    } catch (err: any) {
+      if (err?.name === 'NotFoundError') {
+        setStatus('disconnected');
+      } else {
+        setError(err?.message || 'Error al conectar por puerto serial');
+        setStatus('error');
+      }
+      return false;
+    }
+  }, []);
+
+  // ── Connect (intenta USB primero, ofrece Serial como fallback) ────────────
+
+  const connect = useCallback(async (): Promise<boolean> => {
+    return connectUsb();
+  }, [connectUsb]);
+
+  // ── Disconnect ────────────────────────────────────────────────────────────
 
   const disconnect = useCallback(async () => {
-    if (deviceRef.current) {
-      try { await deviceRef.current.close(); } catch { /* ignore */ }
-      deviceRef.current = null;
+    if (usbDeviceRef.current) {
+      try { await usbDeviceRef.current.close(); } catch { /* ignore */ }
+      usbDeviceRef.current = null;
+    }
+    if (serialWriterRef.current) {
+      try { serialWriterRef.current.releaseLock(); } catch { /* ignore */ }
+      serialWriterRef.current = null;
+    }
+    if (serialPortRef.current) {
+      try { await serialPortRef.current.close(); } catch { /* ignore */ }
+      serialPortRef.current = null;
     }
     setDevice(null);
+    setTransport(null);
     setStatus('disconnected');
     setError(null);
   }, []);
 
+  // ── Print ─────────────────────────────────────────────────────────────────
+
   const print = useCallback(async (data: Uint8Array, copies = 1): Promise<boolean> => {
-    if (!deviceRef.current) {
+    if (status === 'disconnected' || (!usbDeviceRef.current && !serialWriterRef.current)) {
       setError('Impresora no conectada');
       return false;
     }
     setStatus('printing');
     setError(null);
     try {
-      const dev = deviceRef.current;
-      // Find bulk OUT endpoint
-      const iface = dev.configuration?.interfaces.find(
-        (i) => i.alternates[0]?.interfaceClass === 7
-      ) ?? dev.configuration?.interfaces[0];
-      const ep = iface?.alternates[0]?.endpoints.find(
-        (e) => e.direction === 'out' && e.type === 'bulk'
-      );
-      if (!ep) throw new Error('No se encontró endpoint de impresión');
-
       for (let i = 0; i < copies; i++) {
-        await dev.transferOut(ep.endpointNumber, data);
-        if (copies > 1 && i < copies - 1) {
-          await new Promise(r => setTimeout(r, 300));
+        if (usbDeviceRef.current) {
+          // USB path
+          const dev = usbDeviceRef.current;
+          const iface = dev.configuration?.interfaces.find(
+            (ii) => ii.alternates[0]?.interfaceClass === 7
+          ) ?? dev.configuration?.interfaces[0];
+          const ep = iface?.alternates[0]?.endpoints.find(
+            (e) => e.direction === 'out' && e.type === 'bulk'
+          );
+          if (!ep) throw new Error('No se encontró endpoint de impresión USB');
+          await dev.transferOut(ep.endpointNumber, data);
+        } else if (serialWriterRef.current) {
+          // Serial path — enviar en chunks de 64 bytes para evitar overflow
+          const CHUNK = 64;
+          for (let offset = 0; offset < data.length; offset += CHUNK) {
+            await serialWriterRef.current.write(data.slice(offset, offset + CHUNK));
+            await new Promise(r => setTimeout(r, 5)); // pequeña pausa entre chunks
+          }
         }
+        if (copies > 1 && i < copies - 1) await new Promise(r => setTimeout(r, 400));
       }
       setStatus('connected');
       return true;
     } catch (err: any) {
       setError(err?.message || 'Error al imprimir');
       setStatus('error');
-      // Try to recover connection
       setTimeout(() => setStatus('connected'), 3000);
       return false;
     }
-  }, []);
+  }, [status]);
 
   const printTicket = useCallback(async (ticketData: TicketData): Promise<boolean> => {
     const payload = buildTicket(ticketData);
@@ -400,19 +404,13 @@ export function usePrinter() {
   }, [print]);
 
   const printTest = useCallback(async (paperWidth: 58 | 80 = 80): Promise<boolean> => {
-    const payload = buildTestTicket(paperWidth);
-    return print(payload);
+    return print(buildTestTicket(paperWidth));
   }, [print]);
 
   return {
-    status,
-    device,
-    error,
-    supported,
-    connect,
-    disconnect,
-    print,
-    printTicket,
-    printTest,
+    status, device, error, transport,
+    supported, serialSupported,
+    connect, connectUsb, connectSerial,
+    disconnect, print, printTicket, printTest,
   };
 }
