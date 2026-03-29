@@ -1199,14 +1199,54 @@ export default function ConfiguracionManagement() {
                     </div>
                   )}
 
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-3">
+                    {/* Botón conectar/desconectar USB */}
+                    {printerDraft.connectionType === 'usb' && (
+                      printer.status === 'connected' ? (
+                        <button onClick={printer.disconnect}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                          style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                          <Usb size={15} /> Desconectar
+                        </button>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            if (!printer.supported) { toast.error('WebUSB requiere Chrome o Edge'); return; }
+                            const ok = await printer.connect();
+                            if (ok && printer.device) {
+                              setPrinterDraft(p => ({ ...p, usbDeviceName: printer.device!.name, usbVendorId: printer.device!.vendorId, usbProductId: printer.device!.productId }));
+                              toast.success(`Impresora conectada: ${printer.device.name}`);
+                            }
+                          }}
+                          disabled={printer.status === 'connecting'}
+                          className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
+                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                          {printer.status === 'connecting'
+                            ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(245,158,11,0.3)', borderTopColor: '#f59e0b' }} />
+                            : <Usb size={15} />}
+                          {printer.status === 'connecting' ? 'Conectando...' : 'Conectar impresora'}
+                        </button>
+                      )
+                    )}
+
+                    {/* Botón imprimir ticket de prueba */}
                     <button onClick={handleTestPrinter}
-                      disabled={testingPrinter || printer.status === 'printing' || (printerDraft.connectionType === 'usb' && printer.status === 'connecting')}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}>
-                      {(testingPrinter || printer.status === 'printing') ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} /> : <Printer size={15} />}
-                      {testingPrinter || printer.status === 'printing' ? 'Imprimiendo ticket de prueba...' : printerDraft.connectionType === 'usb' ? 'Imprimir ticket de prueba' : 'Probar conexión'}
+                      disabled={
+                        testingPrinter ||
+                        printer.status === 'printing' ||
+                        (printerDraft.connectionType === 'usb' && printer.status !== 'connected')
+                      }
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}
+                      title={printerDraft.connectionType === 'usb' && printer.status !== 'connected' ? 'Conecta la impresora primero' : ''}>
+                      {(testingPrinter || printer.status === 'printing')
+                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
+                        : <Printer size={15} />}
+                      {testingPrinter || printer.status === 'printing'
+                        ? 'Imprimiendo...'
+                        : 'Ticket de prueba'}
                     </button>
+
                     <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
                   </div>
                 </>
