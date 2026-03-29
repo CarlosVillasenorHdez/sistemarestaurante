@@ -333,11 +333,22 @@ export function usePrinter() {
       await openDevice(raw);
       return true;
     } catch (err: any) {
-      if (err?.name !== 'NotFoundError') {
-        setError(err?.message || 'Error al conectar');
+      if (err?.name === 'NotFoundError') {
+        // User cancelled the picker — not an error
+        setStatus('disconnected');
+      } else if (err?.message?.includes('permissions policy') || err?.message?.includes('disallowed')) {
+        setError(
+          'WebUSB bloqueado por política de permisos. ' +
+          'Solución: Abre la app directamente en tu navegador (no en un iframe). ' +
+          'URL: ' + (typeof window !== 'undefined' ? window.location.origin : '')
+        );
+        setStatus('error');
+      } else if (err?.name === 'SecurityError') {
+        setError('WebUSB requiere HTTPS y un gesto del usuario. Asegúrate de usar Chrome/Edge sobre HTTPS.');
         setStatus('error');
       } else {
-        setStatus('disconnected');
+        setError(err?.message || 'Error al conectar con la impresora');
+        setStatus('error');
       }
       return false;
     }

@@ -1107,6 +1107,26 @@ export default function ConfiguracionManagement() {
                             </div>
                           )}
 
+                          {/* Advertencia de iframe / permissions policy */}
+                          {printer.supported && printer.status === 'error' && printer.error?.includes('política') && (
+                            <div className="rounded-lg px-3 py-2 space-y-2" style={{ backgroundColor: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
+                                <p className="text-xs font-semibold" style={{ color: '#f87171' }}>WebUSB bloqueado por el entorno</p>
+                              </div>
+                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                                La app está cargando en un iframe que bloquea el acceso USB.
+                                Para usar la impresora, abre la app directamente:
+                              </p>
+                              <button
+                                onClick={() => window.open(window.location.href, '_blank')}
+                                className="w-full py-1.5 rounded-lg text-xs font-semibold"
+                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                Abrir en pestaña nueva →
+                              </button>
+                            </div>
+                          )}
+
                           {/* Info de dispositivo guardado */}
                           {printerDraft.usbDeviceName && printer.status !== 'connected' && (
                             <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
