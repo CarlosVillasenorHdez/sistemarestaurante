@@ -46,6 +46,8 @@ export type PrinterTransport = 'usb' | 'serial' | null;
 export interface TicketData {
   restaurantName: string;
   branchName?: string;
+  headerLine1?: string;
+  headerLine2?: string;
   orderNumber: string;
   mesa: string;
   mesero: string;
@@ -61,6 +63,15 @@ export interface TicketData {
   paperWidth?: 58 | 80;
   autoCut?: boolean;
   copies?: number;
+  separatorChar?: string;
+  showOrderNumber?: boolean;
+  showDate?: boolean;
+  showMesa?: boolean;
+  showMesero?: boolean;
+  showSubtotal?: boolean;
+  showIva?: boolean;
+  showDiscount?: boolean;
+  showUnitPrice?: boolean;
 }
 
 // ─── ESC/POS helpers ──────────────────────────────────────────────────────────
@@ -168,22 +179,38 @@ export function buildTicket(data: TicketData): Uint8Array {
   return result;
 }
 
-export function buildTestTicket(width: 58 | 80 = 80): Uint8Array {
+export function buildTestTicket(
+  width: 58 | 80 = 80,
+  opts?: Partial<TicketData>
+): Uint8Array {
   return buildTicket({
-    restaurantName: 'PRUEBA DE IMPRESORA',
-    branchName: 'SistemaRest — MP-58N',
-    orderNumber: 'TEST-001',
-    mesa: 'Mesa 1',
-    mesero: 'Administrador',
+    restaurantName: opts?.restaurantName ?? 'PRUEBA DE IMPRESORA',
+    branchName:     opts?.branchName     ?? 'SistemaRest',
+    headerLine1:    opts?.headerLine1,
+    headerLine2:    opts?.headerLine2,
+    orderNumber:    'TEST-001',
+    mesa:           'Mesa 5',
+    mesero:         'Administrador',
     items: [
       { name: 'Tacos de carne asada', qty: 2, price: 85 },
-      { name: 'Agua de jamaica', qty: 1, price: 35 },
-      { name: 'Quesadillas', qty: 1, price: 65 },
+      { name: 'Agua de jamaica',      qty: 1, price: 35 },
+      { name: 'Quesadillas',          qty: 1, price: 65 },
     ],
     subtotal: 270, iva: 43.2, discount: 0, total: 313.2,
     payMethod: 'efectivo', amountPaid: 350, change: 36.8,
-    footer: '¡Impresora configurada correctamente!',
-    paperWidth: width, autoCut: true, copies: 1,
+    footer:         opts?.footer        ?? '¡Impresora configurada correctamente!',
+    paperWidth:     width,
+    autoCut:        opts?.autoCut       ?? true,
+    copies:         1,
+    separatorChar:  opts?.separatorChar,
+    showOrderNumber: opts?.showOrderNumber,
+    showDate:        opts?.showDate,
+    showMesa:        opts?.showMesa,
+    showMesero:      opts?.showMesero,
+    showSubtotal:    opts?.showSubtotal,
+    showIva:         opts?.showIva,
+    showDiscount:    opts?.showDiscount,
+    showUnitPrice:   opts?.showUnitPrice,
   });
 }
 
@@ -403,8 +430,11 @@ export function usePrinter() {
     return print(payload, ticketData.copies ?? 1);
   }, [print]);
 
-  const printTest = useCallback(async (paperWidth: 58 | 80 = 80): Promise<boolean> => {
-    return print(buildTestTicket(paperWidth));
+  const printTest = useCallback(async (
+    paperWidth: 58 | 80 = 80,
+    opts?: Partial<TicketData>
+  ): Promise<boolean> => {
+    return print(buildTestTicket(paperWidth, opts));
   }, [print]);
 
   return {
