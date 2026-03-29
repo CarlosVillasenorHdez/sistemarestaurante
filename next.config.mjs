@@ -18,6 +18,20 @@ const nextConfig = {
     minimumCacheTTL: 60,
   },
 
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            value: 'usb=*, bluetooth=*, serial=*',
+          },
+        ],
+      },
+    ];
+  },
+
   async redirects() {
     return [
       {
