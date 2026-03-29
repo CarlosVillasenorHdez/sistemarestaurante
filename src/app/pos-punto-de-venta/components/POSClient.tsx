@@ -767,6 +767,19 @@ export default function POSClient() {
       {showPaymentModal && (
         <PaymentModal
           total={total}
+          subtotal={subtotal}
+          iva={iva}
+          discount={discountAmount}
+          items={orderItems.map(oi => ({
+            id: oi.menuItem.id,
+            name: oi.menuItem.name,
+            emoji: oi.menuItem.emoji,
+            price: oi.menuItem.price,
+            quantity: oi.quantity,
+            notes: oi.notes,
+          }))}
+          mesa={selectedTable?.name}
+          mesero={selectedTable?.waiter || 'Administrador'}
           onClose={() => setShowPaymentModal(false)}
           onComplete={handlePaymentComplete}
         />

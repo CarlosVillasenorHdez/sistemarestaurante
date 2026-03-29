@@ -6,6 +6,7 @@ import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, 
 import UsuariosManagement from './UsuariosManagement';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePrinter } from '@/hooks/usePrinter';
 import Icon from '@/components/ui/AppIcon';
 
 
@@ -26,6 +27,9 @@ interface PrinterConfig {
   ipAddress: string;
   port: number;
   usbPath: string;
+  usbVendorId?: number;
+  usbProductId?: number;
+  usbDeviceName?: string;
   bluetoothAddress: string;
   paperWidth: 58 | 80;
   printCopies: number;
@@ -114,11 +118,12 @@ export default function ConfiguracionManagement() {
   const [hoursSaved, setHoursSaved] = useState(false);
 
   // Printer config
-  const [printer, setPrinter] = useState<PrinterConfig>(defaultPrinter);
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(defaultPrinter);
   const [printerDraft, setPrinterDraft] = useState<PrinterConfig>(defaultPrinter);
   const [printerSaved, setPrinterSaved] = useState(false);
   const [printerLoading, setPrinterLoading] = useState(true);
   const [testingPrinter, setTestingPrinter] = useState(false);
+  const printer = usePrinter();
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
 
   // System reset
@@ -172,7 +177,7 @@ export default function ConfiguracionManagement() {
           footerText: data.footer_text || 'Gracias por su visita',
           isActive: data.is_active ?? true,
         };
-        setPrinter(cfg);
+        setPrinterConfig(cfg);
         setPrinterDraft(cfg);
       }
     } catch {
@@ -324,19 +329,51 @@ export default function ConfiguracionManagement() {
       const { data } = await supabase.from('printer_config').insert(payload).select().single();
       if (data) setPrinterDraft((p) => ({ ...p, id: data.id }));
     }
-    setPrinter({ ...printerDraft });
+    setPrinterConfig({ ...printerDraft });
     setPrinterSaved(true);
     setTimeout(() => setPrinterSaved(false), 2500);
   }
 
   async function handleTestPrinter() {
-    setTestingPrinter(true);
-    setTestResult(null);
-    await new Promise((r) => setTimeout(r, 1500));
-    // Simulate test — in production this would call an edge function or local agent
-    setTestResult(printerDraft.connectionType === 'network' && !printerDraft.ipAddress ? 'error' : 'success');
-    setTestingPrinter(false);
-    setTimeout(() => setTestResult(null), 4000);
+    if (printerDraft.connectionType === 'usb') {
+      // WebUSB real test
+      if (!printer.supported) {
+        setTestResult('error');
+        toast.error('WebUSB no disponible. Usa Chrome o Edge para USB.');
+        return;
+      }
+      setTestingPrinter(true);
+      setTestResult(null);
+      try {
+        if (printer.status !== 'connected') {
+          const ok = await printer.connect();
+          if (!ok) { setTestResult('error'); setTestingPrinter(false); return; }
+          // Guardar los ids del dispositivo
+          if (printer.device) {
+            setPrinterDraft(p => ({
+              ...p,
+              usbVendorId: printer.device!.vendorId,
+              usbProductId: printer.device!.productId,
+              usbDeviceName: printer.device!.name,
+            }));
+          }
+        }
+        const ok = await printer.printTest(printerDraft.paperWidth);
+        setTestResult(ok ? 'success' : 'error');
+      } catch {
+        setTestResult('error');
+      }
+      setTestingPrinter(false);
+      setTimeout(() => setTestResult(null), 5000);
+    } else {
+      // Simulated test for network/bluetooth
+      setTestingPrinter(true);
+      setTestResult(null);
+      await new Promise((r) => setTimeout(r, 1200));
+      setTestResult(printerDraft.connectionType === 'network' && !printerDraft.ipAddress ? 'error' : 'success');
+      setTestingPrinter(false);
+      setTimeout(() => setTestResult(null), 4000);
+    }
   }
 
   // ── System Reset ─────────────────────────────────────────────────────────────
@@ -1009,9 +1046,73 @@ export default function ConfiguracionManagement() {
                         </div>
                       )}
                       {printerDraft.connectionType === 'usb' && (
-                        <div>
-                          <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>Ruta del dispositivo USB</label>
-                          <input type="text" value={printerDraft.usbPath} onChange={(e) => setPrinterDraft((p) => ({ ...p, usbPath: e.target.value }))} placeholder="/dev/usb/lp0 o COM3" className="w-full px-3 py-2 rounded-lg text-sm outline-none" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }} />
+                        <div className="space-y-3">
+                          {/* Estado de conexión WebUSB */}
+                          <div className="rounded-lg px-4 py-3 flex items-center gap-3" style={{
+                            backgroundColor: printer.status === 'connected' ? 'rgba(34,197,94,0.1)' : printer.status === 'error' ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${printer.status === 'connected' ? 'rgba(34,197,94,0.3)' : printer.status === 'error' ? 'rgba(239,68,68,0.3)' : '#2a3f5f'}`,
+                          }}>
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${printer.status === 'connected' ? 'bg-green-400' : printer.status === 'connecting' || printer.status === 'printing' ? 'bg-yellow-400 animate-pulse' : 'bg-gray-500'}`} />
+                            <div className="flex-1 min-w-0">
+                              {printer.status === 'connected' && printer.device ? (
+                                <>
+                                  <p className="text-xs font-semibold" style={{ color: '#4ade80' }}>Impresora conectada</p>
+                                  <p className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>{printer.device.name}</p>
+                                  <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                                    VID: {printer.device.vendorId.toString(16).toUpperCase().padStart(4,'0')} · PID: {printer.device.productId.toString(16).toUpperCase().padStart(4,'0')}
+                                  </p>
+                                </>
+                              ) : printer.status === 'printing' ? (
+                                <p className="text-xs font-semibold" style={{ color: '#fbbf24' }}>Imprimiendo...</p>
+                              ) : printer.status === 'connecting' ? (
+                                <p className="text-xs font-semibold" style={{ color: '#fbbf24' }}>Conectando...</p>
+                              ) : printer.error ? (
+                                <>
+                                  <p className="text-xs font-semibold" style={{ color: '#f87171' }}>Error de conexión</p>
+                                  <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{printer.error}</p>
+                                </>
+                              ) : (
+                                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Sin impresora conectada</p>
+                              )}
+                            </div>
+                            {printer.status === 'connected' ? (
+                              <button onClick={printer.disconnect}
+                                className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0"
+                                style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                                Desconectar
+                              </button>
+                            ) : (
+                              <button onClick={async () => {
+                                if (!printer.supported) { toast.error('WebUSB requiere Chrome o Edge'); return; }
+                                const ok = await printer.connect();
+                                if (ok && printer.device) {
+                                  setPrinterDraft(p => ({ ...p, usbDeviceName: printer.device!.name, usbVendorId: printer.device!.vendorId, usbProductId: printer.device!.productId }));
+                                }
+                              }}
+                                disabled={printer.status === 'connecting'}
+                                className="text-xs px-2.5 py-1 rounded-lg flex-shrink-0 disabled:opacity-50"
+                                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                {printer.status === 'connecting' ? 'Conectando...' : 'Conectar impresora'}
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Advertencia de compatibilidad */}
+                          {!printer.supported && (
+                            <div className="rounded-lg px-3 py-2 flex items-start gap-2" style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                              <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" style={{ color: '#f59e0b' }} />
+                              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                                WebUSB requiere <strong style={{ color: '#f59e0b' }}>Chrome o Edge</strong>. Firefox y Safari no lo soportan.
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Info de dispositivo guardado */}
+                          {printerDraft.usbDeviceName && printer.status !== 'connected' && (
+                            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                              Último dispositivo: {printerDraft.usbDeviceName}
+                            </p>
+                          )}
                         </div>
                       )}
                       {printerDraft.connectionType === 'bluetooth' && (
@@ -1079,9 +1180,12 @@ export default function ConfiguracionManagement() {
                   )}
 
                   <div className="flex gap-3">
-                    <button onClick={handleTestPrinter} disabled={testingPrinter} className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}>
-                      {testingPrinter ? <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'rgba(255,255,255,0.5)', borderTopColor: 'transparent' }} /> : <Printer size={15} />}
-                      {testingPrinter ? 'Probando...' : 'Probar conexión'}
+                    <button onClick={handleTestPrinter}
+                      disabled={testingPrinter || printer.status === 'printing' || (printerDraft.connectionType === 'usb' && printer.status === 'connecting')}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                      style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}>
+                      {(testingPrinter || printer.status === 'printing') ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} /> : <Printer size={15} />}
+                      {testingPrinter || printer.status === 'printing' ? 'Imprimiendo ticket de prueba...' : printerDraft.connectionType === 'usb' ? 'Imprimir ticket de prueba' : 'Probar conexión'}
                     </button>
                     <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
                   </div>

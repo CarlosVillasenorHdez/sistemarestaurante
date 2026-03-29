@@ -1,59 +1,182 @@
 'use client';
 
-import React, { useState } from 'react';
-import { X, CreditCard, Banknote, Check, Printer, Receipt, Split } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft } from 'lucide-react';
+
+interface OrderItemRef {
+  id: string;           // menuItem.id
+  name: string;
+  emoji?: string;
+  price: number;
+  quantity: number;     // total quantity ordered
+  notes?: string;
+}
 
 interface PaymentModalProps {
   total: number;
+  subtotal?: number;
+  iva?: number;
+  discount?: number;
+  items?: OrderItemRef[];
+  orderNumber?: string;
+  mesa?: string;
+  mesero?: string;
   onClose: () => void;
   onComplete: (method: 'efectivo' | 'tarjeta', amountPaid: number) => void;
 }
 
-interface SplitPart {
-  amount: string;
+// ─── Sub-types ────────────────────────────────────────────────────────────────
+
+interface Person {
+  id: number;
+  name: string;
   method: 'efectivo' | 'tarjeta';
+  cashInput: string;
+  // itemSplit[itemId] = qty assigned to this person
+  itemSplit: Record<string, number>;
 }
 
-export default function PaymentModal({ total, onClose, onComplete }: PaymentModalProps) {
-  const [mode, setMode] = useState<'single' | 'split'>('single');
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function personSubtotal(person: Person, items: OrderItemRef[], ivaRate: number): number {
+  const base = Object.entries(person.itemSplit).reduce((s, [id, qty]) => {
+    const item = items.find(i => i.id === id);
+    return s + (item ? item.price * qty : 0);
+  }, 0);
+  return base * (1 + ivaRate);
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function PaymentModal({
+  total, subtotal, iva, discount = 0, items = [],
+  orderNumber, mesa, mesero,
+  onClose, onComplete,
+}: PaymentModalProps) {
+
+  const ivaRate = subtotal && subtotal > 0 ? (iva ?? 0) / subtotal : 0.16;
+
+  // Modes: 'single' | 'split_amount' | 'split_items'
+  const [mode, setMode] = useState<'single' | 'split_amount' | 'split_items'>('single');
+
+  // ── Single payment ──
   const [method, setMethod] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cashInput, setCashInput] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Split mode
-  const [parts, setParts] = useState<SplitPart[]>([
+  // ── Split by amount ──
+  interface AmountPart { amount: string; method: 'efectivo' | 'tarjeta' }
+  const [amountParts, setAmountParts] = useState<AmountPart[]>([
     { amount: '', method: 'efectivo' },
     { amount: '', method: 'efectivo' },
   ]);
 
+  // ── Split by items ──
+  const [persons, setPersons] = useState<Person[]>([
+    { id: 1, name: 'Persona 1', method: 'efectivo', cashInput: '', itemSplit: {} },
+    { id: 2, name: 'Persona 2', method: 'efectivo', cashInput: '', itemSplit: {} },
+  ]);
+  const [activePerson, setActivePerson] = useState<number>(1); // person id
+  const [itemsStep, setItemsStep] = useState<'assign' | 'pay'>('assign');
+
+  // Computed
   const cashAmount = parseFloat(cashInput) || 0;
   const change = method === 'efectivo' ? cashAmount - total : 0;
 
-  const splitTotal = parts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
-  const splitRemaining = total - splitTotal;
-  const splitValid = Math.abs(splitRemaining) < 0.01 &&
-    parts.every(p => parseFloat(p.amount) > 0);
+  const splitAmountTotal = amountParts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
+  const splitAmountRemaining = total - splitAmountTotal;
+  const splitAmountValid = Math.abs(splitAmountRemaining) < 0.01 &&
+    amountParts.every(p => parseFloat(p.amount) > 0);
 
-  const updatePart = (i: number, key: keyof SplitPart, val: string) => {
-    setParts(prev => prev.map((p, idx) => idx === i ? { ...p, [key]: val } : p));
+  // Items assigned totals
+  const personTotals = useMemo(() =>
+    persons.map(p => ({ id: p.id, total: personSubtotal(p, items, ivaRate) })),
+    [persons, items, ivaRate]
+  );
+
+  // Remaining qty per item (not yet assigned to anyone)
+  const remainingQty = useMemo(() => {
+    const rem: Record<string, number> = {};
+    items.forEach(item => { rem[item.id] = item.quantity; });
+    persons.forEach(p => {
+      Object.entries(p.itemSplit).forEach(([id, qty]) => {
+        rem[id] = (rem[id] ?? 0) - qty;
+      });
+    });
+    return rem;
+  }, [persons, items]);
+
+  const allItemsAssigned = useMemo(() =>
+    items.every(item => (remainingQty[item.id] ?? 0) === 0),
+    [items, remainingQty]
+  );
+
+  const itemsGrandTotal = useMemo(() =>
+    personTotals.reduce((s, p) => s + p.total, 0),
+    [personTotals]
+  );
+
+  // ── Handlers ──
+
+  const handleConfirmSingle = async () => {
+    if (method === 'efectivo' && cashAmount < total) return;
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 500));
+    setLoading(false);
+    onComplete(method, method === 'efectivo' ? cashAmount : total);
   };
 
-  const handleConfirm = async () => {
-    if (mode === 'single') {
-      if (method === 'efectivo' && cashAmount < total) return;
-      setLoading(true);
-      await new Promise(r => setTimeout(r, 600));
-      setLoading(false);
-      onComplete(method, method === 'efectivo' ? cashAmount : total);
-    } else {
-      if (!splitValid) return;
-      setLoading(true);
-      await new Promise(r => setTimeout(r, 600));
-      setLoading(false);
-      // Use the first part's method as primary; caller closes the order
-      onComplete(parts[0].method, total);
-    }
+  const handleConfirmSplitAmount = async () => {
+    if (!splitAmountValid) return;
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 500));
+    setLoading(false);
+    onComplete(amountParts[0].method, total);
   };
+
+  const handleConfirmSplitItems = async () => {
+    setLoading(true);
+    await new Promise(r => setTimeout(r, 500));
+    setLoading(false);
+    onComplete('efectivo', total);
+  };
+
+  // Assign / remove qty from active person
+  const assignItem = (itemId: string, delta: number) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    setPersons(prev => prev.map(p => {
+      if (p.id !== activePerson) return p;
+      const current = p.itemSplit[itemId] ?? 0;
+      const newQty = Math.max(0, Math.min(item.quantity, current + delta));
+      // Check against remaining (available = remaining + current for this person)
+      const available = (remainingQty[itemId] ?? 0) + current;
+      const capped = Math.min(newQty, available);
+      if (capped === 0) {
+        const { [itemId]: _, ...rest } = p.itemSplit;
+        return { ...p, itemSplit: rest };
+      }
+      return { ...p, itemSplit: { ...p.itemSplit, [itemId]: capped } };
+    }));
+  };
+
+  const addPerson = () => {
+    const newId = Math.max(0, ...persons.map(p => p.id)) + 1;
+    setPersons(prev => [...prev, {
+      id: newId, name: `Persona ${newId}`,
+      method: 'efectivo', cashInput: '', itemSplit: {},
+    }]);
+  };
+
+  const removePerson = (id: number) => {
+    if (persons.length <= 2) return;
+    setPersons(prev => prev.filter(p => p.id !== id));
+    if (activePerson === id) setActivePerson(persons[0].id);
+  };
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
   const quickAmounts = [
     Math.ceil(total / 100) * 100,
@@ -62,13 +185,24 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
     Math.ceil(total / 500) * 500,
   ].filter((v, i, arr) => arr.indexOf(v) === i && v >= total).slice(0, 4);
 
-  const now = new Date();
-  const orderDate = now.toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const orderTime = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  // ── Method pill ──
+  const MethodPill = ({ value, onChange }: { value: 'efectivo' | 'tarjeta'; onChange: (m: 'efectivo' | 'tarjeta') => void }) => (
+    <div className="flex gap-1">
+      {(['efectivo', 'tarjeta'] as const).map(m => (
+        <button key={m} onClick={() => onChange(m)}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold border transition-all"
+          style={{ borderColor: value === m ? '#f59e0b' : '#e5e7eb', backgroundColor: value === m ? '#fffbeb' : 'white', color: value === m ? '#92400e' : '#9ca3af' }}>
+          {m === 'efectivo' ? <Banknote size={11} /> : <CreditCard size={11} />}
+          {m === 'efectivo' ? 'Efectivo' : 'Tarjeta'}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content max-w-lg" style={{ maxWidth: '540px' }}>
+      <div className="modal-content" style={{ maxWidth: '560px' }}>
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b rounded-t-2xl"
           style={{ borderColor: '#f3f4f6', backgroundColor: '#1B3A6B' }}>
@@ -79,7 +213,9 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
             </div>
             <div>
               <h2 className="font-bold text-white text-base">Procesar Pago</h2>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>{orderDate} · {orderTime}</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                {mesa && `${mesa} · `}{dateStr} · {timeStr}
+              </p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg" style={{ color: 'rgba(255,255,255,0.5)' }}>
@@ -87,32 +223,38 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+
           {/* Total */}
           <div className="rounded-xl p-4 text-center" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total a cobrar</p>
             <p className="font-mono font-bold text-3xl" style={{ color: '#1B3A6B' }}>${total.toFixed(2)}</p>
           </div>
 
-          {/* Mode toggle */}
+          {/* Mode selector */}
           <div className="flex gap-2">
-            <button onClick={() => setMode('single')}
-              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold border-2 transition-all"
-              style={{ borderColor: mode === 'single' ? '#f59e0b' : '#e5e7eb', backgroundColor: mode === 'single' ? '#fffbeb' : 'white', color: mode === 'single' ? '#92400e' : '#6b7280' }}>
-              <Banknote size={15} /> Pago completo
-            </button>
-            <button onClick={() => setMode('split')}
-              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold border-2 transition-all"
-              style={{ borderColor: mode === 'split' ? '#f59e0b' : '#e5e7eb', backgroundColor: mode === 'split' ? '#fffbeb' : 'white', color: mode === 'split' ? '#92400e' : '#6b7280' }}>
-              <Split size={15} /> Dividir cuenta
-            </button>
+            {[
+              { key: 'single', label: 'Pago completo', icon: <Check size={13} /> },
+              { key: 'split_amount', label: 'Dividir monto', icon: <Split size={13} /> },
+              { key: 'split_items', label: 'Por platillos', icon: <Users size={13} /> },
+            ].map(({ key, label, icon }) => (
+              <button key={key} onClick={() => setMode(key as any)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold border-2 transition-all"
+                style={{
+                  borderColor: mode === key ? '#f59e0b' : '#e5e7eb',
+                  backgroundColor: mode === key ? '#fffbeb' : 'white',
+                  color: mode === key ? '#92400e' : '#6b7280',
+                }}>
+                {icon} {label}
+              </button>
+            ))}
           </div>
 
-          {/* ── Single payment ── */}
+          {/* ══ PAGO COMPLETO ══ */}
           {mode === 'single' && (
             <>
               <div>
-                <p className="text-sm font-semibold text-gray-700 mb-2">Método de Pago</p>
+                <p className="text-sm font-semibold text-gray-700 mb-2">Método de pago</p>
                 <div className="grid grid-cols-2 gap-3">
                   {(['efectivo', 'tarjeta'] as const).map((m) => (
                     <button key={m} onClick={() => setMethod(m)}
@@ -125,14 +267,13 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
                           : <CreditCard size={20} style={{ color: method === m ? '#1B3A6B' : '#9ca3af' }} />}
                       </div>
                       <div className="text-left">
-                        <p className="text-sm font-semibold" style={{ color: method === m ? '#92400e' : '#374151' }}>
+                        <p className="text-sm font-semibold capitalize" style={{ color: method === m ? '#92400e' : '#374151' }}>
                           {m === 'efectivo' ? 'Efectivo' : 'Tarjeta'}
                         </p>
                         <p className="text-xs text-gray-400">{m === 'efectivo' ? 'Pago en mano' : 'Débito / Crédito'}</p>
                       </div>
                       {method === m && (
-                        <div className="ml-auto w-5 h-5 rounded-full flex items-center justify-center"
-                          style={{ backgroundColor: '#f59e0b' }}>
+                        <div className="ml-auto w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: '#f59e0b' }}>
                           <Check size={11} style={{ color: '#1B3A6B' }} />
                         </div>
                       )}
@@ -140,15 +281,14 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
                   ))}
                 </div>
               </div>
-
               {method === 'efectivo' && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Efectivo recibido</label>
                   <input type="number" placeholder={`Mínimo $${total.toFixed(2)}`}
-                    value={cashInput} onChange={(e) => setCashInput(e.target.value)}
+                    value={cashInput} onChange={e => setCashInput(e.target.value)}
                     className="input-field text-lg font-mono font-bold text-center py-3" min={total} />
                   <div className="flex gap-2 mt-2">
-                    {quickAmounts.map((amt) => (
+                    {quickAmounts.map(amt => (
                       <button key={amt} onClick={() => setCashInput(String(amt))}
                         className="flex-1 py-2 rounded-lg text-xs font-semibold transition-colors"
                         style={{ backgroundColor: cashInput === String(amt) ? '#fef3c7' : '#f3f4f6', color: cashInput === String(amt) ? '#92400e' : '#6b7280' }}>
@@ -159,14 +299,14 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
                   {cashAmount >= total && (
                     <div className="mt-3 px-4 py-3 rounded-xl flex items-center justify-between"
                       style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac' }}>
-                      <span className="text-sm font-semibold text-green-700">Cambio a devolver</span>
+                      <span className="text-sm font-semibold text-green-700">Cambio</span>
                       <span className="font-mono font-bold text-green-700 text-lg">${change.toFixed(2)}</span>
                     </div>
                   )}
                   {cashInput && cashAmount < total && (
-                    <div className="mt-3 px-4 py-2.5 rounded-xl flex items-center gap-2"
+                    <div className="mt-3 px-4 py-2.5 rounded-xl"
                       style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5' }}>
-                      <span className="text-xs text-red-600">Faltan ${(total - cashAmount).toFixed(2)} para completar el pago</span>
+                      <span className="text-xs text-red-600">Faltan ${(total - cashAmount).toFixed(2)}</span>
                     </div>
                   )}
                 </div>
@@ -174,75 +314,274 @@ export default function PaymentModal({ total, onClose, onComplete }: PaymentModa
             </>
           )}
 
-          {/* ── Split payment ── */}
-          {mode === 'split' && (
+          {/* ══ DIVIDIR POR MONTO ══ */}
+          {mode === 'split_amount' && (
             <div className="space-y-3">
-              {parts.map((part, i) => (
+              {amountParts.map((part, i) => (
                 <div key={i} className="p-3 rounded-xl border" style={{ borderColor: '#e5e7eb', backgroundColor: '#f9fafb' }}>
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs font-bold text-gray-500">Persona {i + 1}</span>
-                    {parts.length > 2 && (
-                      <button onClick={() => setParts(prev => prev.filter((_, idx) => idx !== i))}
+                    {amountParts.length > 2 && (
+                      <button onClick={() => setAmountParts(p => p.filter((_, idx) => idx !== i))}
                         className="ml-auto text-xs text-red-400 hover:text-red-600">Quitar</button>
                     )}
                   </div>
                   <div className="flex gap-2">
                     <input type="number" placeholder="$0.00" value={part.amount}
-                      onChange={e => updatePart(i, 'amount', e.target.value)}
+                      onChange={e => setAmountParts(prev => prev.map((p, idx) => idx === i ? { ...p, amount: e.target.value } : p))}
                       className="input-field flex-1 font-mono font-bold text-sm py-2" min={0} />
-                    <div className="flex gap-1">
-                      {(['efectivo', 'tarjeta'] as const).map(m => (
-                        <button key={m} onClick={() => updatePart(i, 'method', m)}
-                          className="w-9 h-9 rounded-lg flex items-center justify-center border-2 transition-all"
-                          style={{ borderColor: part.method === m ? '#f59e0b' : '#e5e7eb', backgroundColor: part.method === m ? '#fffbeb' : 'white' }}
-                          title={m === 'efectivo' ? 'Efectivo' : 'Tarjeta'}>
-                          {m === 'efectivo'
-                            ? <Banknote size={14} style={{ color: part.method === m ? '#d97706' : '#9ca3af' }} />
-                            : <CreditCard size={14} style={{ color: part.method === m ? '#d97706' : '#9ca3af' }} />}
-                        </button>
-                      ))}
-                    </div>
+                    <MethodPill value={part.method} onChange={m => setAmountParts(prev => prev.map((p, idx) => idx === i ? { ...p, method: m } : p))} />
                   </div>
                 </div>
               ))}
-
-              <button onClick={() => setParts(prev => [...prev, { amount: '', method: 'efectivo' }])}
+              <button onClick={() => setAmountParts(p => [...p, { amount: '', method: 'efectivo' }])}
                 className="w-full py-2 rounded-xl text-xs font-semibold border-2 border-dashed transition-all"
                 style={{ borderColor: '#d1d5db', color: '#6b7280' }}>
                 + Agregar persona
               </button>
-
-              {/* Split summary */}
               <div className="flex items-center justify-between px-3 py-2 rounded-xl"
-                style={{ backgroundColor: splitRemaining === 0 ? '#f0fdf4' : splitRemaining < 0 ? '#fef2f2' : '#fefce8', border: `1px solid ${splitRemaining === 0 ? '#86efac' : splitRemaining < 0 ? '#fca5a5' : '#fde68a'}` }}>
-                <span className="text-xs font-semibold" style={{ color: splitRemaining === 0 ? '#15803d' : splitRemaining < 0 ? '#dc2626' : '#92400e' }}>
-                  {splitRemaining === 0 ? '✓ Total cubierto' : splitRemaining > 0 ? `Falta $${splitRemaining.toFixed(2)}` : `Excede $${Math.abs(splitRemaining).toFixed(2)}`}
+                style={{
+                  backgroundColor: splitAmountRemaining === 0 ? '#f0fdf4' : splitAmountRemaining < 0 ? '#fef2f2' : '#fefce8',
+                  border: `1px solid ${splitAmountRemaining === 0 ? '#86efac' : splitAmountRemaining < 0 ? '#fca5a5' : '#fde68a'}`,
+                }}>
+                <span className="text-xs font-semibold" style={{ color: splitAmountRemaining === 0 ? '#15803d' : splitAmountRemaining < 0 ? '#dc2626' : '#92400e' }}>
+                  {splitAmountRemaining === 0 ? '✓ Total cubierto' : splitAmountRemaining > 0 ? `Falta $${splitAmountRemaining.toFixed(2)}` : `Excede $${Math.abs(splitAmountRemaining).toFixed(2)}`}
                 </span>
                 <span className="font-mono text-xs font-bold" style={{ color: '#1B3A6B' }}>
-                  ${splitTotal.toFixed(2)} / ${total.toFixed(2)}
+                  ${splitAmountTotal.toFixed(2)} / ${total.toFixed(2)}
                 </span>
               </div>
             </div>
+          )}
+
+          {/* ══ DIVIDIR POR PLATILLOS ══ */}
+          {mode === 'split_items' && (
+            <>
+              {itemsStep === 'assign' && (
+                <div className="space-y-3">
+                  {/* Personas tabs */}
+                  <div className="flex gap-2 flex-wrap">
+                    {persons.map(p => {
+                      const pt = personTotals.find(t => t.id === p.id);
+                      const isActive = activePerson === p.id;
+                      return (
+                        <button key={p.id} onClick={() => setActivePerson(p.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-all"
+                          style={{ borderColor: isActive ? '#f59e0b' : '#e5e7eb', backgroundColor: isActive ? '#fffbeb' : 'white', color: isActive ? '#92400e' : '#6b7280' }}>
+                          <span>{p.name}</span>
+                          {pt && pt.total > 0 && (
+                            <span className="font-mono" style={{ color: isActive ? '#d97706' : '#9ca3af' }}>
+                              ${pt.total.toFixed(0)}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    <button onClick={addPerson}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold border-2 border-dashed"
+                      style={{ borderColor: '#d1d5db', color: '#6b7280' }}>
+                      + Persona
+                    </button>
+                    {persons.length > 2 && (
+                      <button onClick={() => removePerson(activePerson)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold"
+                        style={{ backgroundColor: '#fef2f2', color: '#ef4444', border: '1px solid #fca5a5' }}>
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Edit name */}
+                  <div>
+                    <input
+                      className="input-field text-sm w-full"
+                      value={persons.find(p => p.id === activePerson)?.name ?? ''}
+                      onChange={e => setPersons(prev => prev.map(p => p.id === activePerson ? { ...p, name: e.target.value } : p))}
+                      placeholder="Nombre (ej: Carlos, Mesa del fondo...)"
+                    />
+                  </div>
+
+                  {/* Items list */}
+                  {items.length === 0 ? (
+                    <p className="text-xs text-center text-gray-400 py-4">Sin platillos en la orden</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {items.map(item => {
+                        const activePersonData = persons.find(p => p.id === activePerson)!;
+                        const assignedToActive = activePersonData?.itemSplit[item.id] ?? 0;
+                        const remaining = remainingQty[item.id] ?? 0;
+                        const canAdd = remaining > 0;
+                        const canRemove = assignedToActive > 0;
+
+                        return (
+                          <div key={item.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
+                            style={{
+                              backgroundColor: assignedToActive > 0 ? '#fffbeb' : '#f9fafb',
+                              border: `1px solid ${assignedToActive > 0 ? '#fde68a' : '#f3f4f6'}`,
+                            }}>
+                            <span className="text-lg w-7 text-center flex-shrink-0">{item.emoji || '🍽️'}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-800 truncate">{item.name}</p>
+                              <p className="text-xs text-gray-400">
+                                ${item.price.toFixed(2)} c/u ·{' '}
+                                <span style={{ color: remaining === 0 ? '#22c55e' : '#f59e0b' }}>
+                                  {remaining === 0 ? '✓ asignado' : `${remaining} sin asignar`}
+                                </span>
+                              </p>
+                            </div>
+                            {/* Counter */}
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button onClick={() => assignItem(item.id, -1)} disabled={!canRemove}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all"
+                                style={{ backgroundColor: canRemove ? '#fee2e2' : '#f3f4f6', color: canRemove ? '#ef4444' : '#9ca3af' }}>
+                                <Minus size={13} />
+                              </button>
+                              <span className="w-6 text-center text-sm font-bold" style={{ color: assignedToActive > 0 ? '#d97706' : '#9ca3af' }}>
+                                {assignedToActive}
+                              </span>
+                              <button onClick={() => assignItem(item.id, 1)} disabled={!canAdd}
+                                className="w-7 h-7 rounded-lg flex items-center justify-center disabled:opacity-30 transition-all"
+                                style={{ backgroundColor: canAdd ? '#dcfce7' : '#f3f4f6', color: canAdd ? '#22c55e' : '#9ca3af' }}>
+                                <Plus size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Summary bar */}
+                  <div className="rounded-xl px-4 py-3 space-y-1.5" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-500">Resumen de asignaciones</span>
+                      <span className={`text-xs font-bold ${allItemsAssigned ? 'text-green-600' : 'text-amber-600'}`}>
+                        {allItemsAssigned ? '✓ Todo asignado' : 'Pendiente de asignar'}
+                      </span>
+                    </div>
+                    {persons.map(p => {
+                      const pt = personTotals.find(t => t.id === p.id);
+                      const itemCount = Object.values(p.itemSplit).reduce((s, q) => s + q, 0);
+                      if (itemCount === 0) return null;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between">
+                          <span className="text-xs text-gray-600">{p.name} ({itemCount} plato{itemCount !== 1 ? 's' : ''})</span>
+                          <span className="text-xs font-bold font-mono" style={{ color: '#1B3A6B' }}>
+                            ${(pt?.total ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: '#e2e8f0' }}>
+                      <span className="text-xs font-semibold text-gray-700">Total asignado</span>
+                      <span className="text-xs font-bold font-mono" style={{ color: '#1B3A6B' }}>
+                        ${itemsGrandTotal.toFixed(2)} / ${total.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Proceed to payment step */}
+                  <button
+                    onClick={() => setItemsStep('pay')}
+                    disabled={!allItemsAssigned}
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: allItemsAssigned ? '#1B3A6B' : '#e5e7eb', color: allItemsAssigned ? 'white' : '#9ca3af' }}>
+                    Continuar al cobro <ChevronRight size={15} />
+                  </button>
+                </div>
+              )}
+
+              {itemsStep === 'pay' && (
+                <div className="space-y-3">
+                  <button onClick={() => setItemsStep('assign')}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+                    <ArrowLeft size={13} /> Volver a asignar platillos
+                  </button>
+
+                  <p className="text-sm font-semibold text-gray-700">Cobrar por persona</p>
+
+                  {persons.map(p => {
+                    const pt = personTotals.find(t => t.id === p.id);
+                    const myTotal = pt?.total ?? 0;
+                    if (myTotal === 0) return null;
+                    const cashVal = parseFloat(p.cashInput) || 0;
+                    const myChange = p.method === 'efectivo' ? cashVal - myTotal : 0;
+                    const itemCount = Object.values(p.itemSplit).reduce((s, q) => s + q, 0);
+                    return (
+                      <div key={p.id} className="rounded-xl border overflow-hidden" style={{ borderColor: '#e5e7eb' }}>
+                        <div className="flex items-center justify-between px-4 py-2.5"
+                          style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e5e7eb' }}>
+                          <div>
+                            <p className="text-sm font-bold text-gray-800">{p.name}</p>
+                            <p className="text-xs text-gray-400">{itemCount} plato{itemCount !== 1 ? 's' : ''}</p>
+                          </div>
+                          <p className="font-mono font-bold text-lg" style={{ color: '#1B3A6B' }}>${myTotal.toFixed(2)}</p>
+                        </div>
+                        <div className="p-3 space-y-2">
+                          <MethodPill
+                            value={p.method}
+                            onChange={m => setPersons(prev => prev.map(pp => pp.id === p.id ? { ...pp, method: m } : pp))}
+                          />
+                          {p.method === 'efectivo' && (
+                            <>
+                              <input type="number" placeholder={`Mínimo $${myTotal.toFixed(2)}`}
+                                value={p.cashInput}
+                                onChange={e => setPersons(prev => prev.map(pp => pp.id === p.id ? { ...pp, cashInput: e.target.value } : pp))}
+                                className="input-field w-full font-mono text-sm py-2 text-center" />
+                              {cashVal >= myTotal && (
+                                <div className="flex items-center justify-between px-3 py-1.5 rounded-lg"
+                                  style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac' }}>
+                                  <span className="text-xs text-green-700">Cambio</span>
+                                  <span className="text-xs font-bold font-mono text-green-700">${myChange.toFixed(2)}</span>
+                                </div>
+                              )}
+                              {p.cashInput && cashVal < myTotal && (
+                                <p className="text-xs text-red-500 text-center">Faltan ${(myTotal - cashVal).toFixed(2)}</p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center gap-3 px-6 py-4 border-t" style={{ borderColor: '#f3f4f6' }}>
           <button className="btn-secondary flex items-center gap-2 text-xs">
-            <Printer size={14} />
-            Imprimir ticket
+            <Printer size={14} /> Imprimir
           </button>
           <div className="flex-1" />
           <button onClick={onClose} className="btn-secondary">Cancelar</button>
-          <button
-            onClick={handleConfirm}
-            disabled={loading || (mode === 'single' && method === 'efectivo' && cashAmount < total) || (mode === 'split' && !splitValid)}
-            className="btn-primary flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-            {loading
-              ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              : <Check size={16} />}
-            {loading ? 'Procesando...' : 'Confirmar Pago'}
-          </button>
+
+          {mode === 'single' && (
+            <button onClick={handleConfirmSingle}
+              disabled={loading || (method === 'efectivo' && cashAmount < total)}
+              className="btn-primary flex items-center gap-2 disabled:opacity-50">
+              {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
+              {loading ? 'Procesando...' : 'Confirmar pago'}
+            </button>
+          )}
+          {mode === 'split_amount' && (
+            <button onClick={handleConfirmSplitAmount}
+              disabled={loading || !splitAmountValid}
+              className="btn-primary flex items-center gap-2 disabled:opacity-50">
+              {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
+              {loading ? 'Procesando...' : 'Confirmar pago'}
+            </button>
+          )}
+          {mode === 'split_items' && (
+            <button onClick={handleConfirmSplitItems}
+              disabled={loading || !allItemsAssigned || (items.length > 0 && itemsStep === 'assign')}
+              className="btn-primary flex items-center gap-2 disabled:opacity-50">
+              {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
+              {loading ? 'Procesando...' : 'Confirmar cobro'}
+            </button>
+          )}
         </div>
       </div>
     </div>
