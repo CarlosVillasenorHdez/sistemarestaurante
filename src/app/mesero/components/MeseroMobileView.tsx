@@ -4,7 +4,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
-import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search, MessageSquare } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search, MessageSquare, CreditCard } from 'lucide-react';
+import PaymentModal from '@/app/pos-punto-de-venta/components/PaymentModal';
 import { useOrderFlow, type OrderFlowItem } from '@/hooks/useOrderFlow';
 import type { DbTable, DbDish } from '@/lib/supabase/types';
 
@@ -22,7 +23,7 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 export default function MeseroMobileView() {
   const supabase = createClient();
   const { } = useAuth();
-  const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen } = useOrderFlow();
+  const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen, closeOrder } = useOrderFlow();
 
   const [tables, setTables] = useState<Table[]>([]);
   const [dishes, setDishes] = useState<DbDish[]>([]);
@@ -39,6 +40,7 @@ export default function MeseroMobileView() {
   const prevReadyRef = React.useRef<string[]>([]);
   const [branchName, setBranchName] = useState('Sucursal Principal');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [showPayment, setShowPayment] = useState(false);
 
   useEffect(() => {
     supabase
@@ -230,6 +232,32 @@ export default function MeseroMobileView() {
   const itemCount = orderItems.reduce((s, i) => s + i.qty, 0);
 
   // ─── Send order to kitchen ────────────────────────────────────────────────
+
+  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
+    if (!selectedTable || !currentOrderId) return;
+    const ok = await closeOrder({
+      orderId: currentOrderId,
+      tableIds: [selectedTable.id],
+      items: orderItems,
+      subtotal,
+      discountAmount: 0,
+      iva,
+      total,
+      payMethod: method,
+      waiterName: 'Mesero',
+      branchName,
+      openedAt: null,
+    });
+    if (!ok) return;
+    setShowPayment(false);
+    setShowCart(false);
+    setOrderItems([]);
+    setCurrentOrderId(null);
+    setSelectedTable(null);
+    setView('tables');
+    await loadData();
+    toast.success(`Pago de $${total.toFixed(2)} procesado. ¡Orden cerrada!`);
+  };
 
   const sendOrder = async () => {
     if (!selectedTable || orderItems.length === 0) return;
@@ -498,14 +526,44 @@ export default function MeseroMobileView() {
               <button
                 onClick={sendOrder}
                 disabled={sending || orderItems.length === 0}
-                className="w-full py-4 rounded-2xl text-base font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-transform"
+                className="w-full py-3 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-transform"
                 style={{ backgroundColor: '#1B3A6B' }}
               >
-                <Send size={18} /> {sending ? 'Enviando...' : 'Enviar a Cocina'}
+                <Send size={16} /> {sending ? 'Enviando...' : 'Enviar a Cocina'}
               </button>
+              {currentOrderId && (
+                <button
+                  onClick={() => setShowPayment(true)}
+                  disabled={orderItems.length === 0}
+                  className="w-full py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-transform"
+                  style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}
+                >
+                  <CreditCard size={16} /> Cobrar ${total.toFixed(2)}
+                </button>
+              )}
             </div>
           </div>
         </div>
+      )}
+      {showPayment && selectedTable && (
+        <PaymentModal
+          total={total}
+          subtotal={subtotal}
+          iva={iva}
+          discount={0}
+          items={orderItems.map(i => ({
+            id: i.dishId,
+            name: i.name,
+            emoji: i.emoji,
+            price: i.price,
+            quantity: i.qty,
+            notes: i.notes,
+          }))}
+          mesa={selectedTable.name}
+          mesero="Mesero"
+          onClose={() => setShowPayment(false)}
+          onComplete={handlePaymentComplete}
+        />
       )}
     </div>
   );
