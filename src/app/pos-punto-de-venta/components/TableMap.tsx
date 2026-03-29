@@ -24,6 +24,7 @@ interface TableMapProps {
   mergeMode?: boolean;
   mergeSelection?: string[];
   onUnmerge?: (table: Table) => void;
+  reservedTables?: string[];
   // Layout props
   layoutTables?: LayoutTablePosition[];
   onMoveTable?: (tableNumber: number, newX: number, newY: number) => void;
@@ -48,6 +49,7 @@ export default function TableMap({
   mergeMode = false,
   mergeSelection = [],
   onUnmerge,
+  reservedTables = [],
   layoutTables,
   onMoveTable,
   onDeleteTable,
@@ -460,6 +462,12 @@ export default function TableMap({
                 </div>
               )}
               <div className="text-xl font-bold leading-none mb-1">{table.number}</div>
+              {reservedTables.includes(table.id) && table.status !== 'ocupada' && (
+                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(139,92,246,0.25)', color: '#ddd6fe', fontSize: '9px' }}>
+                  Reservada
+                </span>
+              )}
               <div className="text-xs font-medium text-center leading-tight mb-2 truncate w-full px-1">
                 {table.name.replace('Mesa ', '').length > 8 ? table.name.replace('Mesa ', 'M.') : table.name}
               </div>
