@@ -149,7 +149,56 @@ export default function DeliveryManagement() {
     const nextStatus = STATUS_FLOW[idx + 1];
     const { error } = await supabase.from('delivery_orders').update({ status: nextStatus, updated_at: new Date().toISOString() }).eq('id', order.id);
     if (error) { toast.error('Error: ' + error.message); return; }
-    toast.success(`Estado: ${STATUS_LABELS[nextStatus]}`);
+
+    // Al pasar a preparación, crear orden en el KDS (tabla orders)
+    if (nextStatus === 'preparacion') {
+      const platformLabel = PLATFORM_LABELS[order.platform] ?? order.platform;
+      const orderId = `DEL-${order.id.slice(-8).toUpperCase()}`;
+      const subtotal = order.subtotal;
+      const iva = Math.round(subtotal * 0.16 * 100) / 100;
+      const total = subtotal + iva;
+
+      // Evitar duplicados si ya se envió este pedido a cocina
+      const { data: existing } = await supabase
+        .from('orders').select('id').eq('id', orderId).maybeSingle();
+
+      if (!existing) {
+        const { error: insertErr } = await supabase.from('orders').insert({
+          id: orderId,
+          mesa: platformLabel,
+          mesa_num: 0,
+          mesero: `Delivery`,
+          subtotal,
+          iva,
+          discount: 0,
+          total,
+          status: 'preparacion',
+          kitchen_status: 'pendiente',
+          branch: 'Delivery',
+          notes: `${platformLabel} · ${order.customerName}${order.customerAddress ? ' · ' + order.customerAddress : ''}`,
+          opened_at: order.receivedAt || new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+
+        if (!insertErr && order.items.length > 0) {
+          await supabase.from('order_items').insert(
+            order.items.map(i => ({
+              order_id: orderId,
+              name: i.name,
+              qty: i.qty,
+              price: i.price,
+              emoji: '🛵',
+              notes: null,
+            }))
+          );
+        }
+      }
+      toast.success(`Pedido enviado a cocina · ${STATUS_LABELS[nextStatus]}`);
+    } else {
+      toast.success(`Estado: ${STATUS_LABELS[nextStatus]}`);
+    }
+
     loadOrders();
   };
 

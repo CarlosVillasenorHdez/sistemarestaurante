@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import OrderDetailModal from './OrderDetailModal';
 import CancelOrderModal from './CancelOrderModal';
 import { createClient } from '@/lib/supabase/client';
+import { useBranch } from '@/hooks/useBranch';
 
 export type OrderStatus = 'abierta' | 'preparacion' | 'lista' | 'cerrada' | 'cancelada';
 export type PaymentMethod = 'efectivo' | 'tarjeta' | null;
@@ -85,6 +86,7 @@ export default function OrdersTable() {
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'todas'>('todas');
   const [meseroFilter, setMeseroFilter] = useState('todos');
   const [dateFrom, setDateFrom] = useState('');
@@ -98,16 +100,21 @@ export default function OrdersTable() {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
   const supabase = createClient();
-
-  const ORDERS_LIMIT = 200;  // Hard cap — prevents loading months of history at once
+  const { branch: activeBranch } = useBranch();
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
-    const { data: ordersData, error } = await supabase
+    // Base query — si hay filtro de fechas no ponemos límite; si no, cap en 500
+    let query = supabase
       .from('orders')
       .select('*, order_items(*)')
-      .order('created_at', { ascending: false })
-      .limit(ORDERS_LIMIT);
+      .order('created_at', { ascending: false });
+
+    if (dateFrom) query = query.gte('created_at', dateFrom + 'T00:00:00');
+    if (dateTo)   query = query.lte('created_at', dateTo   + 'T23:59:59');
+    if (!dateFrom && !dateTo) query = query.limit(1000);
+
+    const { data: ordersData, error } = await query;
 
     if (error) {
       toast.error('Error al cargar órdenes: ' + error.message);
@@ -158,7 +165,8 @@ export default function OrdersTable() {
       const orderDate = o.openedAt ? o.openedAt.slice(0, 10) : '';
       const matchFrom = !dateFrom || orderDate >= dateFrom;
       const matchTo = !dateTo || orderDate <= dateTo;
-      return matchStatus && matchMesero && matchSearch && matchFrom && matchTo;
+      const matchBranch = !activeBranch?.name || !o.branch || o.branch === activeBranch.name;
+      return matchStatus && matchMesero && matchSearch && matchFrom && matchTo && matchBranch;
     });
 
     result = [...result].sort((a, b) => {
@@ -172,7 +180,7 @@ export default function OrdersTable() {
       return 0;
     });
     return result;
-  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir, dateFrom, dateTo]);
+  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir, dateFrom, dateTo, activeBranch?.name]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -255,6 +263,8 @@ export default function OrdersTable() {
   };
 
   const openCount = filtered.filter((o) => ['abierta', 'preparacion', 'lista'].includes(o.status)).length;
+  const isDateFiltered = !!(dateFrom || dateTo);
+  const hasMoreOrders = !isDateFiltered && orders.length >= 1000;
   const cancelCount = filtered.filter((o) => o.status === 'cancelada').length;
 
   return (
@@ -311,6 +321,12 @@ export default function OrdersTable() {
           )}
         </div>
         <div className="flex items-center gap-2 ml-auto">
+          {activeBranch?.name && (
+            <span className="text-xs px-2.5 py-2 rounded-lg font-semibold"
+              style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#d97706', border: '1px solid rgba(245,158,11,0.25)' }}>
+              📍 {activeBranch.name}
+            </span>
+          )}
           <button onClick={handleRefresh} className="btn-secondary py-2 px-3 flex items-center gap-1.5">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             <span className="hidden sm:inline text-xs">Actualizar</span>
@@ -333,8 +349,16 @@ export default function OrdersTable() {
         </div>
       )}
 
+      {/* Banner si hay más órdenes no mostradas */}
+      {hasMoreOrders && (
+        <div className="px-4 py-2 rounded-xl text-xs flex items-center justify-between"
+          style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', color: '#3b82f6' }}>
+          <span>Mostrando las últimas 1,000 órdenes. Para ver todas, filtra por rango de fechas.</span>
+        </div>
+      )}
+
       {/* Table */}
-      <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div className="bg-white rounded-xl border overflow-hidden"  style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

@@ -751,9 +751,17 @@ export default function ReportesManagement() {
     [staffDataToUse]
   );
 
-  const plTotalIngresos = 508200;
-  const plUtilidadBruta = 345680;
-  const plMargenBruto = ((plUtilidadBruta / plTotalIngresos) * 100).toFixed(1);
+  // P&L real: usar datos del período seleccionado (realKpis) o fallback
+  const plTotalIngresos = realKpis?.ventas ?? 0;
+
+  // COGS real desde cogsData (suma de costoIngredientes * unidades vendidas)
+  const plCogsReal = cogsData.reduce((s, d) => s + d.costoIngredientes * d.unidadesVendidas, 0);
+  const plUtilidadBruta = plTotalIngresos > 0
+    ? Math.round(plTotalIngresos - plCogsReal)
+    : 0;
+  const plMargenBruto = plTotalIngresos > 0
+    ? ((plUtilidadBruta / plTotalIngresos) * 100).toFixed(1)
+    : '0.0';
 
   // Build P&L data with real payroll + real gastos + real depreciaciones
   const plData: PLItem[] = useMemo(() => {
@@ -766,7 +774,7 @@ export default function ReportesManagement() {
     const gastosFinancieros = gastosOpMensual.find(g => g.concepto.includes('Financiero'))?.monto ?? 4200;
 
     // If no real gastos loaded yet, use fallback static values
-    const gastosOpToUse = gastosOpItems.length > 0 ? gastosOpItems : gastosOpFallback;
+    const gastosOpToUse = gastosOpItems.length > 0 ? gastosOpItems : (plTotalIngresos > 0 ? [] : gastosOpFallback);
     const totalOtrosGastos = gastosOpToUse.reduce((s, g) => s + g.monto, 0);
     const totalGastosOp = nomina + totalOtrosGastos;
     const ebitda = plUtilidadBruta - totalGastosOp;
@@ -777,14 +785,11 @@ export default function ReportesManagement() {
 
     return [
       { concepto: 'INGRESOS', monto: 0, tipo: 'subtotal', nivel: 0 },
-      { concepto: 'Ventas de Alimentos', monto: 412600, tipo: 'ingreso', nivel: 1 },
-      { concepto: 'Ventas de Bebidas', monto: 87400, tipo: 'ingreso', nivel: 1 },
-      { concepto: 'Otros Ingresos', monto: 8200, tipo: 'ingreso', nivel: 1 },
+      { concepto: 'Ventas (período)', monto: plTotalIngresos, tipo: 'ingreso', nivel: 1 },
       { concepto: 'TOTAL INGRESOS', monto: plTotalIngresos, tipo: 'total', nivel: 0 },
       { concepto: 'COSTO DE VENTAS (COGS)', monto: 0, tipo: 'subtotal', nivel: 0 },
-      { concepto: 'Costo de Ingredientes — Alimentos', monto: 148536, tipo: 'costo', nivel: 1 },
-      { concepto: 'Costo de Ingredientes — Bebidas', monto: 13984, tipo: 'costo', nivel: 1 },
-      { concepto: 'TOTAL COGS', monto: 162520, tipo: 'total', nivel: 0 },
+      { concepto: 'Costo de Ingredientes (recetas)', monto: plUtilidadBruta > 0 ? Math.round(plTotalIngresos - plUtilidadBruta) : 0, tipo: 'costo', nivel: 1 },
+      { concepto: 'TOTAL COGS', monto: plUtilidadBruta > 0 ? Math.round(plTotalIngresos - plUtilidadBruta) : 0, tipo: 'total', nivel: 0 },
       { concepto: 'UTILIDAD BRUTA', monto: plUtilidadBruta, tipo: 'total', nivel: 0 },
       { concepto: 'GASTOS OPERATIVOS', monto: 0, tipo: 'subtotal', nivel: 0 },
       { concepto: 'Nómina y Prestaciones', monto: nomina, tipo: 'gasto', nivel: 1 },
@@ -798,7 +803,7 @@ export default function ReportesManagement() {
       { concepto: 'ISR (30%)', monto: isr, tipo: 'costo', nivel: 1 },
       { concepto: 'UTILIDAD NETA', monto: utilidadNeta, tipo: 'total', nivel: 0 },
     ];
-  }, [monthlyPayroll, gastosOpMensual, depMensualTotal]);
+  }, [monthlyPayroll, gastosOpMensual, depMensualTotal, plTotalIngresos, plUtilidadBruta]);
 
   const plUtilidadNeta = useMemo(() => plData.find((i) => i.concepto === 'UTILIDAD NETA')?.monto ?? 113386, [plData]);
   const plMargenNeto = ((plUtilidadNeta / plTotalIngresos) * 100).toFixed(1);

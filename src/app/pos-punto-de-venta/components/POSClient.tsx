@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useBranch } from '@/hooks/useBranch';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import TableMap from './TableMap';
@@ -82,6 +83,7 @@ export default function POSClient() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const { branch: activeBranch } = useBranch();
   const [tables, setTables] = useState<Table[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
@@ -220,6 +222,19 @@ export default function POSClient() {
     supabase.from('system_config')
       .select('config_value').eq('config_key', 'branch_name').single()
       .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
+
+    // Cargar sucursal activa del selector
+    try {
+      const stored = localStorage.getItem('sr_active_branch');
+      if (stored) { const b = JSON.parse(stored); if (b?.name) setBranchName(b.name); }
+    } catch {}
+
+    const branchHandler = (e: Event) => {
+      const d = (e as CustomEvent).detail;
+      if (d?.name) setBranchName(d.name);
+    };
+    window.addEventListener('branch-changed', branchHandler);
+    return () => window.removeEventListener('branch-changed', branchHandler);
   }, []);
 
   // ─── Realtime: auto-refresh tables when any table/order changes ───────────
