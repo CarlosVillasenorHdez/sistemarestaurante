@@ -112,6 +112,26 @@ export default function POSClient() {
   const total = taxableAmount + iva;
   const itemCount = orderItems.reduce((s, i) => s + i.quantity, 0);
 
+  const [reservedTables, setReservedTables] = useState<string[]>([]);
+
+  const fetchReservations = useCallback(async () => {
+    const now = new Date();
+    const in2h = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    const today = now.toISOString().split('T')[0];
+    const timeNow = now.toTimeString().slice(0, 5);
+    const time2h  = in2h.toTimeString().slice(0, 5);
+    const { data } = await supabase
+      .from('reservations')
+      .select('table_id')
+      .eq('reservation_date', today)
+      .eq('status', 'confirmada')
+      .gte('reservation_time', timeNow)
+      .lte('reservation_time', time2h);
+    setReservedTables((data || []).map((r: any) => r.table_id).filter(Boolean));
+  }, [supabase]);
+
+  useEffect(() => { fetchReservations(); }, [fetchReservations]);
+
   const fetchTables = useCallback(async () => {
     setLoadingTables(true);
     const [{ data: configData }, { data, error }] = await Promise.all([
@@ -710,6 +730,7 @@ export default function POSClient() {
                 loadingTables ? <TableSkeleton /> : (
                   <TableMap
                     tables={tables}
+                    reservedTables={reservedTables}
                     onTableSelect={handleTableSelect}
                     onMarkOccupied={handleMarkTableOccupied}
                     selectedTableId={selectedTable?.id}
@@ -767,6 +788,19 @@ export default function POSClient() {
       {showPaymentModal && (
         <PaymentModal
           total={total}
+          subtotal={subtotal}
+          iva={iva}
+          discount={discountAmount}
+          items={orderItems.map(oi => ({
+            id: oi.menuItem.id,
+            name: oi.menuItem.name,
+            emoji: oi.menuItem.emoji,
+            price: oi.menuItem.price,
+            quantity: oi.quantity,
+            notes: oi.notes,
+          }))}
+          mesa={selectedTable?.name}
+          mesero={selectedTable?.waiter || 'Administrador'}
           onClose={() => setShowPaymentModal(false)}
           onComplete={handlePaymentComplete}
         />

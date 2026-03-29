@@ -270,13 +270,15 @@ export function usePrinter() {
 
     // Auto-reconnect to previously paired device
     if (typeof navigator !== 'undefined' && 'usb' in navigator) {
-      navigator.usb.getDevices().then(async (devices) => {
-        if (devices.length > 0) {
-          try {
-            await openDevice(devices[0]);
-          } catch { /* silent */ }
-        }
-      });
+      try {
+        navigator.usb.getDevices().then(async (devices) => {
+          if (devices.length > 0) {
+            try {
+              await openDevice(devices[0]);
+            } catch { /* silent */ }
+          }
+        }).catch(() => { /* USB access denied by permissions policy */ });
+      } catch { /* USB access denied by permissions policy */ }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
