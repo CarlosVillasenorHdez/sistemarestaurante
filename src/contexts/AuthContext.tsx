@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
-import { createClient, wipeAuthStorage } from '../lib/supabase/client';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
+import { createClient } from '../lib/supabase/client';
 
 export type AppRole = 'admin' | 'gerente' | 'cajero' | 'mesero' | 'cocinero' | 'ayudante_cocina' | 'repartidor';
 
@@ -13,6 +13,9 @@ interface AppUser {
   appRole: AppRole;
   employeeId: string | null;
   isActive: boolean;
+  tenantId: string | null;
+  branchId: string | null;
+  branchName: string | null;
 }
 
 interface BrandConfig {
@@ -27,6 +30,8 @@ interface AuthContextValue {
   appUser: AppUser | null;
   loading: boolean;
   brandConfig: BrandConfig;
+  tenantId: string | null;
+  branchId: string | null;
   signOut: () => Promise<void>;
   createUser: (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => Promise<void>;
   updateUserPassword: (authUserId: string, newPassword: string) => Promise<void>;
@@ -44,6 +49,7 @@ export const useAuth = () => {
 };
 
 // Default admin user — no login required
+// Uses the default tenant from the migration
 const DEFAULT_ADMIN: AppUser = {
   id: 'admin',
   authUserId: 'admin',
@@ -52,6 +58,9 @@ const DEFAULT_ADMIN: AppUser = {
   appRole: 'admin',
   employeeId: null,
   isActive: true,
+  tenantId: '00000000-0000-0000-0000-000000000001',
+  branchId: null,
+  branchName: null,
 };
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -61,13 +70,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     logoUrl: '', restaurantName: 'SistemaRest', theme: 'dark',
   });
 
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
   const BRAND_CACHE_KEY = 'sistemarest_brand_config';
   useEffect(() => {
-    // Clear any stale Supabase auth tokens to prevent "Invalid Refresh Token" errors
-    wipeAuthStorage();
-
     const cached = sessionStorage.getItem(BRAND_CACHE_KEY);
     if (cached) {
       try { setBrandConfig(JSON.parse(cached)); return; }
@@ -94,12 +101,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   const signOut = async () => {
-    // No-op — no auth to sign out from
+    // No-op — no auth to sign out from in this mode
   };
 
   const createUser = async (username: string, password: string, fullName: string, role: AppRole, employeeId?: string) => {
     const { data, error } = await supabase.functions.invoke('create-app-user', {
-      body: { username: username.trim().toLowerCase(), password, fullName, role, employeeId: employeeId || null },
+      body: {
+        username: username.trim().toLowerCase(), password, fullName, role,
+        employeeId: employeeId || null,
+        tenantId: DEFAULT_ADMIN.tenantId,
+      },
     });
     if (error) throw new Error(error.message || 'Error al crear usuario');
     if (data?.error) throw new Error(data.error);
@@ -119,6 +130,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       id: u.id, authUserId: u.auth_user_id, username: u.username,
       fullName: u.full_name, appRole: u.app_role as AppRole,
       employeeId: u.employee_id, isActive: u.is_active,
+      tenantId: u.tenant_id, branchId: u.branch_id, branchName: null,
     }));
   };
 
@@ -137,6 +149,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       appUser: DEFAULT_ADMIN,
       loading,
       brandConfig,
+      tenantId: DEFAULT_ADMIN.tenantId,
+      branchId: DEFAULT_ADMIN.branchId,
       signOut,
       createUser, updateUserPassword, listUsers, toggleUserActive, updateUserRole,
     }}>
