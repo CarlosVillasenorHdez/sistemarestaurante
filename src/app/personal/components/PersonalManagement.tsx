@@ -141,9 +141,12 @@ export default function PersonalManagement() {
   const [form, setForm] = useState<Omit<Employee, 'id'>>(emptyForm());
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof Omit<Employee, 'id'>, string>>>({});
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'empleados' | 'turnos'>('empleados');
+  const [activeTab, setActiveTab] = useState<'empleados' | 'turnos' | 'asistencia'>('empleados');
   const [shifts, setShifts] = useState<EmployeeShift[]>([]);
   const [shiftsLoading, setShiftsLoading] = useState(false);
+  const [attendance, setAttendance] = useState<{id:string;employeeId:string;employeeName:string;date:string;checkIn:string|null;checkOut:string|null;hoursWorked:number|null}[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [savingShift, setSavingShift] = useState(false);
 
   const supabase = createClient();
@@ -281,6 +284,58 @@ export default function PersonalManagement() {
     if (formErrors[key]) setFormErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
+  const fetchAttendance = useCallback(async (date: string) => {
+    setAttendanceLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('employee_attendance')
+        .select('*, employees(name)')
+        .eq('date', date)
+        .order('check_in', { ascending: true });
+      if (error) throw error;
+      setAttendance((data || []).map((r: any) => ({
+        id: r.id,
+        employeeId: r.employee_id,
+        employeeName: r.employees?.name ?? '—',
+        date: r.date,
+        checkIn: r.check_in,
+        checkOut: r.check_out,
+        hoursWorked: r.hours_worked,
+      })));
+    } catch { /* tabla puede no existir aún */ }
+    finally { setAttendanceLoading(false); }
+  }, [supabase]);
+
+  useEffect(() => {
+    if (activeTab === 'asistencia') fetchAttendance(selectedDate);
+  }, [activeTab, selectedDate, fetchAttendance]);
+
+  const handleCheckIn = async (employeeId: string) => {
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().slice(0,5);
+    const { error } = await supabase.from('employee_attendance').insert({
+      employee_id: employeeId, date: dateStr, check_in: timeStr,
+    });
+    if (error) { toast.error('Error al registrar entrada: ' + error.message); return; }
+    toast.success('Entrada registrada');
+    fetchAttendance(selectedDate);
+  };
+
+  const handleCheckOut = async (recordId: string, checkIn: string) => {
+    const now = new Date();
+    const timeStr = now.toTimeString().slice(0, 5);
+    const [inH, inM] = checkIn.split(':').map(Number);
+    const [outH, outM] = timeStr.split(':').map(Number);
+    const hoursWorked = Math.round(((outH * 60 + outM) - (inH * 60 + inM)) / 60 * 100) / 100;
+    const { error } = await supabase.from('employee_attendance')
+      .update({ check_out: timeStr, hours_worked: hoursWorked, updated_at: new Date().toISOString() })
+      .eq('id', recordId);
+    if (error) { toast.error('Error al registrar salida: ' + error.message); return; }
+    toast.success(`Salida registrada · ${hoursWorked}h trabajadas`);
+    fetchAttendance(selectedDate);
+  };
+
   async function handleShiftChange(employeeId: string, day: string, shift: ShiftType) {
     setSavingShift(true);
     try {
@@ -345,6 +400,7 @@ export default function PersonalManagement() {
         {[
           { key: 'empleados', label: 'Empleados' },
           { key: 'turnos', label: 'Turnos Semanales' },
+          { key: 'asistencia', label: 'Asistencia' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -605,6 +661,129 @@ export default function PersonalManagement() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ─── Asistencia Tab ─── */}
+      {activeTab === 'asistencia' && (
+        <div className="flex flex-col h-full overflow-hidden">
+          {/* Header con selector de fecha */}
+          <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0" style={{ borderColor: '#243f72' }}>
+            <div>
+              <h2 className="text-base font-bold text-white">Control de Asistencia</h2>
+              <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>
+                Registra entradas y salidas del personal
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ backgroundColor: '#1a2f52', border: '1px solid #243f72', color: '#f1f5f9' }}
+              />
+            </div>
+          </div>
+
+          {/* KPIs rápidos */}
+          {(() => {
+            const present = attendance.filter(a => a.checkIn).length;
+            const withCheckout = attendance.filter(a => a.checkOut).length;
+            const avgHours = withCheckout > 0
+              ? (attendance.filter(a => a.hoursWorked).reduce((s, a) => s + (a.hoursWorked ?? 0), 0) / withCheckout).toFixed(1)
+              : '—';
+            return (
+              <div className="grid grid-cols-3 gap-4 px-6 py-4 flex-shrink-0">
+                {[
+                  { label: 'Presentes hoy', value: present, color: '#22c55e' },
+                  { label: 'Ya salieron', value: withCheckout, color: '#3b82f6' },
+                  { label: 'Hrs promedio', value: avgHours, color: '#f59e0b' },
+                ].map(kpi => (
+                  <div key={kpi.label} className="rounded-xl p-3 text-center"
+                    style={{ backgroundColor: '#1a2f52', border: '1px solid #243f72' }}>
+                    <p className="text-xl font-bold" style={{ color: kpi.color }}>{kpi.value}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>{kpi.label}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Lista de empleados activos con botones de checkin/checkout */}
+          <div className="flex-1 overflow-auto px-6 pb-4">
+            {attendanceLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#f59e0b', borderTopColor: 'transparent' }} />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {employees.filter(e => e.status === 'activo').map(emp => {
+                  const record = attendance.find(a => a.employeeId === emp.id);
+                  const hasIn  = !!record?.checkIn;
+                  const hasOut = !!record?.checkOut;
+                  return (
+                    <div key={emp.id} className="flex items-center gap-4 px-4 py-3 rounded-xl"
+                      style={{
+                        backgroundColor: hasOut ? 'rgba(59,130,246,0.08)' : hasIn ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${hasOut ? 'rgba(59,130,246,0.2)' : hasIn ? 'rgba(34,197,94,0.2)' : '#243f72'}`,
+                      }}>
+                      {/* Indicador */}
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${hasOut ? 'bg-blue-400' : hasIn ? 'bg-green-400' : 'bg-gray-600'}`} />
+                      {/* Nombre y rol */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{emp.name}</p>
+                        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{emp.role}</p>
+                      </div>
+                      {/* Horario registrado */}
+                      <div className="text-right flex-shrink-0 mr-2">
+                        {hasIn && (
+                          <p className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                            {record!.checkIn}
+                            {hasOut && <> → {record!.checkOut}</>}
+                          </p>
+                        )}
+                        {record?.hoursWorked != null && (
+                          <p className="text-xs font-semibold" style={{ color: '#f59e0b' }}>
+                            {record.hoursWorked}h trabajadas
+                          </p>
+                        )}
+                        {!hasIn && (
+                          <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Sin registro</p>
+                        )}
+                      </div>
+                      {/* Botones */}
+                      {!hasIn ? (
+                        <button
+                          onClick={() => handleCheckIn(emp.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}>
+                          <UserCheck size={13} /> Entrada
+                        </button>
+                      ) : !hasOut ? (
+                        <button
+                          onClick={() => handleCheckOut(record!.id, record!.checkIn!)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                          <UserX size={13} /> Salida
+                        </button>
+                      ) : (
+                        <span className="text-xs px-3 py-1.5 rounded-lg"
+                          style={{ backgroundColor: 'rgba(59,130,246,0.1)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.2)' }}>
+                          ✓ Completo
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {employees.filter(e => e.status === 'activo').length === 0 && (
+                  <p className="text-center text-sm py-8" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                    No hay empleados activos registrados
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
