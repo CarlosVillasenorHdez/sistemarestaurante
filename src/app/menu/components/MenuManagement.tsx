@@ -124,7 +124,7 @@ function DeleteConfirmModal({ dish, onConfirm, onCancel }: { dish: Dish; onConfi
 
 // ─── Recipe Modal ─────────────────────────────────────────────────────────────
 
-function RecipeModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
+function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: () => void; onPriceUpdate: (dishId: string, newPrice: number) => void }) {
   const supabase = createClient();
   const [recipe, setRecipe] = useState<RecipeItem[]>([]);
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
@@ -173,6 +173,22 @@ function RecipeModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
 
   const currentMargin = simulatorPrice > 0 ? ((simulatorPrice - totalCost) / simulatorPrice) * 100 : 0;
   const currentProfit = simulatorPrice - totalCost;
+
+  const handleApplyPrice = async () => {
+    if (simulatorPrice <= 0) return;
+    try {
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      const { error } = await supabase
+        .from('dishes')
+        .update({ price: simulatorPrice, updated_at: new Date().toISOString() })
+        .eq('id', dish.id);
+      if (error) throw error;
+      onPriceUpdate(dish.id, simulatorPrice);
+      alert(`Precio de ${dish.name} actualizado a $${simulatorPrice.toFixed(2)} en el menú.`);
+    } catch (err: any) {
+      alert('Error al actualizar precio: ' + (err?.message ?? 'Intenta de nuevo'));
+    }
+  };
 
   const getMarginColor = (pct: number) => {
     if (pct >= 65) return '#34d399';
@@ -540,6 +556,15 @@ function RecipeModal({ dish, onClose }: { dish: Dish; onClose: () => void }) {
           <p className="text-xs flex-1 self-center" style={{ color: 'rgba(255,255,255,0.35)' }}>
             Los costos se calculan con base en el precio unitario de cada ingrediente en inventario.
           </p>
+          {simulatorPrice !== dish.price && simulatorPrice > 0 && (
+            <button
+              onClick={handleApplyPrice}
+              className="px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all hover:brightness-110"
+              style={{ backgroundColor: '#22c55e', color: 'white' }}
+            >
+              ✓ Aplicar ${simulatorPrice.toFixed(2)} al menú
+            </button>
+          )}
           <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-sm font-semibold" style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
             Listo
           </button>
@@ -935,7 +960,17 @@ export default function MenuManagement() {
       {/* Modals */}
       {formOpen && <DishFormModal dish={editingDish} onSave={handleSave} onClose={() => { setFormOpen(false); setEditingDish(null); }} />}
       {deletingDish && <DeleteConfirmModal dish={deletingDish} onConfirm={handleDelete} onCancel={() => setDeletingDish(null)} />}
-      {recipeDish && <RecipeModal dish={recipeDish} onClose={() => { setRecipeDish(null); fetchDishes(); }} />}
+      {recipeDish && (
+        <RecipeModal
+          dish={recipeDish}
+          onClose={() => { setRecipeDish(null); fetchDishes(); }}
+          onPriceUpdate={(dishId, newPrice) => {
+            setDishes(prev => prev.map(d => d.id === dishId ? { ...d, price: newPrice } : d));
+            setRecipeDish(null);
+            fetchDishes();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -215,6 +215,45 @@ export default function OrdersTable() {
   };
 
   const totalVentas = filtered.filter((o) => o.status === 'cerrada').reduce((s, o) => s + o.total, 0);
+  const handleExportCSV = () => {
+    const rows = filtered;
+    const headers = ['ID Orden','Mesa','Mesero','Platillos','Subtotal','IVA','Descuento','Total','Método Pago','Estado','Apertura','Cierre','Duración (min)','Sucursal'];
+    const lines = rows.map(o => [
+      o.id, o.mesa, o.mesero,
+      o.items.map((i:any) => `${i.emoji||''} ${i.name} x${i.qty}`).join(' | '),
+      o.subtotal.toFixed(2), o.iva.toFixed(2), o.discount.toFixed(2), o.total.toFixed(2),
+      o.payMethod ?? '', o.status,
+      o.openedAt ? new Date(o.openedAt).toLocaleString('es-MX') : '',
+      o.closedAt ? new Date(o.closedAt).toLocaleString('es-MX') : '',
+      o.durationMin ?? '', o.branch ?? '',
+    ].map((v:any) => `"${String(v).replace(/"/g,'""')}"`).join(','));
+    const csv = [headers.join(','), ...lines].join('\n');
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `ordenes_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${rows.length} órdenes exportadas`);
+  };
+
+  const handleExportSelected = () => {
+    const rows = orders.filter((o:any) => selectedRows.has(o.id));
+    if (!rows.length) return;
+    const headers = ['ID Orden','Mesa','Mesero','Total','Método Pago','Estado','Apertura','Cierre'];
+    const lines = rows.map((o:any) => [
+      o.id, o.mesa, o.mesero, o.total.toFixed(2), o.payMethod??'', o.status,
+      o.openedAt ? new Date(o.openedAt).toLocaleString('es-MX') : '',
+      o.closedAt ? new Date(o.closedAt).toLocaleString('es-MX') : '',
+    ].map((v:any) => `"${String(v).replace(/"/g,'""')}"`).join(','));
+    const csv = [headers.join(','), ...lines].join('\n');
+    const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `ordenes_sel_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${rows.length} órdenes exportadas`);
+  };
+
   const openCount = filtered.filter((o) => ['abierta', 'preparacion', 'lista'].includes(o.status)).length;
   const cancelCount = filtered.filter((o) => o.status === 'cancelada').length;
 
@@ -276,9 +315,9 @@ export default function OrdersTable() {
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
             <span className="hidden sm:inline text-xs">Actualizar</span>
           </button>
-          <button className="btn-secondary py-2 px-3 flex items-center gap-1.5">
+          <button onClick={handleExportCSV} className="btn-secondary py-2 px-3 flex items-center gap-1.5">
             <Download size={13} />
-            <span className="hidden sm:inline text-xs">Exportar</span>
+            <span className="hidden sm:inline text-xs">Exportar CSV</span>
           </button>
         </div>
       </div>
@@ -288,7 +327,7 @@ export default function OrdersTable() {
         <div className="rounded-xl px-4 py-3 flex items-center gap-3" style={{ backgroundColor: '#1B3A6B', border: '1px solid #243f72' }}>
           <span className="text-sm font-semibold text-white">{selectedRows.size} orden{selectedRows.size !== 1 ? 'es' : ''} seleccionada{selectedRows.size !== 1 ? 's' : ''}</span>
           <div className="flex items-center gap-2 ml-auto">
-            <button className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.8)' }}>Exportar selección</button>
+            <button className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.8)' }} onClick={handleExportSelected}>Exportar selección</button>
             <button onClick={() => setSelectedRows(new Set())} className="text-xs px-3 py-1.5 rounded-lg font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Deseleccionar</button>
           </div>
         </div>

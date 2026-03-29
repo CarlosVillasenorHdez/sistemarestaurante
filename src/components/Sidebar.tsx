@@ -78,6 +78,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const supabase = createClient();
 
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
+  const [branches, setBranches] = useState<{id: string; name: string}[]>([]);
+  const [showBranchSelector, setShowBranchSelector] = useState(false);
   const [openOrdersCount, setOpenOrdersCount] = useState<number>(0);
   const [lowStockCount, setLowStockCount] = useState<number>(0);
 
@@ -85,7 +87,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const sidebarBg = brandConfig.theme === 'light' ? '#f8fafc' : (brandConfig.primaryColor || '#1B3A6B');
   const sidebarBorder = brandConfig.theme === 'light' ? '#e2e8f0' : '#243f72';
 
-  // Load branch name from system_config
+  // Load branch name from system_config and available branches
   useEffect(() => {
     supabase
       .from('system_config')
@@ -95,6 +97,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       .then(({ data }) => {
         if (data?.config_value) setBranchName(data.config_value);
       });
+    // Load available branches
+    supabase.from('branches').select('id, name').eq('is_active', true).order('name')
+      .then(({ data }) => { if (data?.length) setBranches(data); });
   }, [supabase]);
 
   // Load real open orders count and refresh every 60s
@@ -154,12 +159,35 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Branch selector pill */}
       {!collapsed && (
-        <div className="px-3 pt-3">
-          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all duration-150" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
+        <div className="px-3 pt-3 relative">
+          <button
+            onClick={() => setShowBranchSelector(p => !p)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all duration-150 hover:bg-white/10"
+            style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}
+          >
             <GitBranch size={13} />
             <span className="truncate flex-1 text-left">{branchName}</span>
-            <ChevronRight size={12} />
+            <ChevronRight size={12} className={`transition-transform duration-200 ${showBranchSelector ? 'rotate-90' : ''}`} />
           </button>
+          {showBranchSelector && branches.length > 1 && (
+            <div className="absolute left-3 right-3 top-full mt-1 z-50 rounded-lg shadow-xl overflow-hidden"
+              style={{ backgroundColor: '#162d52', border: '1px solid rgba(255,255,255,0.15)' }}>
+              {branches.map(b => (
+                <button key={b.id} onClick={() => {
+                  setBranchName(b.name);
+                  setShowBranchSelector(false);
+                  try { localStorage.setItem('sr_active_branch', JSON.stringify({ id: b.id, name: b.name })); } catch {}
+                  window.dispatchEvent(new CustomEvent('branch-changed', { detail: { id: b.id, name: b.name } }));
+                }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors hover:bg-white/10"
+                  style={{ color: b.name === branchName ? '#f59e0b' : 'rgba(255,255,255,0.7)' }}>
+                  <GitBranch size={12} />
+                  <span className="truncate">{b.name}</span>
+                  {b.name === branchName && <span className="ml-auto" style={{ color: '#f59e0b' }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
