@@ -317,19 +317,9 @@ export function usePrinter() {
     setError(null);
     try {
       // Show browser device picker — common thermal printer vendors
-      const raw = await navigator.usb.requestDevice({
-        filters: [
-          { classCode: 7 },          // Printer class
-          { vendorId: 0x04b8 },      // Epson
-          { vendorId: 0x0519 },      // Star Micronics
-          { vendorId: 0x154f },      // SNBC
-          { vendorId: 0x1fc9 },      // Bixolon
-          { vendorId: 0x0dd4 },      // Custom / Generic
-          { vendorId: 0x067b },      // Generic USB thermal
-          { vendorId: 0x0416 },      // Winbond (common generic)
-          { vendorId: 0x20d1 },      // HPRT
-        ],
-      });
+      // filters: [] muestra TODOS los dispositivos USB — necesario para impresoras
+      // genéricas que no reportan clase 7 o tienen VendorID desconocido
+      const raw = await navigator.usb.requestDevice({ filters: [] });
       await openDevice(raw);
       return true;
     } catch (err: any) {
@@ -344,7 +334,12 @@ export function usePrinter() {
         );
         setStatus('error');
       } else if (err?.name === 'SecurityError') {
-        setError('WebUSB requiere HTTPS y un gesto del usuario. Asegúrate de usar Chrome/Edge sobre HTTPS.');
+        setError(
+          'No se pudo acceder al dispositivo USB. Posibles causas: ' +
+          '(1) El driver del dispositivo interfiere con WebUSB — prueba desconectar y reconectar la impresora, ' +
+          '(2) Otro programa tiene tomado el puerto USB, ' +
+          '(3) En Windows, instala Zadig para cambiar el driver a WinUSB.'
+        );
         setStatus('error');
       } else {
         setError(err?.message || 'Error al conectar con la impresora');
