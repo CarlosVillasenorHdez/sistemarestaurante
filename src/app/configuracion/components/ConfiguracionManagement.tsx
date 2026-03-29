@@ -404,7 +404,22 @@ export default function ConfiguracionManagement() {
             }));
           }
         }
-        const ok = await printer.printTest(printerDraft.paperWidth);
+        const ok = await printer.printTest(printerDraft.paperWidth, {
+          restaurantName: 'PRUEBA DE IMPRESORA',
+          headerLine1:    printerDraft.headerLine1  || undefined,
+          headerLine2:    printerDraft.headerLine2  || undefined,
+          footer:         printerDraft.footerText   || '¡Impresora configurada correctamente!',
+          autoCut:        printerDraft.autoCut,
+          separatorChar:  printerDraft.separatorChar,
+          showOrderNumber: printerDraft.showOrderNumber,
+          showDate:        printerDraft.showDate,
+          showMesa:        printerDraft.showMesa,
+          showMesero:      printerDraft.showMesero,
+          showSubtotal:    printerDraft.showSubtotal,
+          showIva:         printerDraft.showIva,
+          showDiscount:    printerDraft.showDiscount,
+          showUnitPrice:   printerDraft.showUnitPrice,
+        });
         setTestResult(ok ? 'success' : 'error');
       } catch {
         setTestResult('error');
