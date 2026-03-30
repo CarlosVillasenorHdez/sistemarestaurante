@@ -2,7 +2,7 @@
 
 import { toast } from 'sonner';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, Printer, Settings2, RotateCcw, AlertTriangle, Eye, EyeOff, Wifi, Usb, Bluetooth, LayoutGrid, Move, Trash2, Plus, XCircle } from 'lucide-react';
+import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, Printer, Settings2, RotateCcw, AlertTriangle, Eye, EyeOff, Wifi, Usb, Bluetooth, LayoutGrid, Move, Trash2, Plus, XCircle, Zap, Star } from 'lucide-react';
 import UsuariosManagement from './UsuariosManagement';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -96,6 +96,8 @@ const SECTIONS = [
   { id: 'layout', label: 'Layout Mesas', icon: LayoutGrid },
   { id: 'horarios', label: 'Horarios', icon: Clock },
   { id: 'impresora', label: 'Impresora', icon: Printer },
+  { id: 'funcionalidades', label: 'Funcionalidades', icon: Zap },
+  { id: 'lealtad_config', label: 'Programa de Lealtad', icon: Star },
   { id: 'sistema', label: 'Sistema', icon: Settings2 },
   { id: 'usuarios', label: 'Usuarios', icon: Users },
 ];
