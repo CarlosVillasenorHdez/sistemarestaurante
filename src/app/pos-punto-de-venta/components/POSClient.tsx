@@ -92,6 +92,7 @@ export default function POSClient() {
   const [discount, setDiscount] = useState<{ type: 'pct' | 'fixed'; value: number }>({ type: 'pct', value: 0 });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [kitchenSent, setKitchenSent] = useState(false);
+  const [sentItemsSnapshot, setSentItemsSnapshot] = useState<{id:string;qty:number}[]>([]);
   const [sendingToKitchen, setSendingToKitchen] = useState(false);
 
   // Layout state
@@ -404,7 +405,12 @@ export default function POSClient() {
       // Check if already sent to kitchen
       supabase.from('orders').select('kitchen_status').eq('id', primary.currentOrderId).single()
         .then(({ data }) => {
-          setKitchenSent(data?.kitchen_status != null && data.kitchen_status !== 'en_edicion');
+          const sent = data?.kitchen_status != null && data.kitchen_status !== 'en_edicion';
+          setKitchenSent(sent);
+          if (sent) {
+            // Snapshot current items as "already sent"
+            setSentItemsSnapshot(orderItems.map(i => ({ id: i.menuItem.id, qty: i.quantity })));
+          }
         });
       const { data: existingItems } = await supabase
         .from('order_items').select('*').eq('order_id', primary.currentOrderId);
@@ -499,10 +505,26 @@ export default function POSClient() {
       return;
     }
     setSendingToKitchen(true);
-    const ok = await sendToKitchen(selectedTable.currentOrderId);
+
+    // Build list of NEW items (not in the last sent snapshot)
+    const newItems = orderItems
+      .filter(oi => {
+        const prev = sentItemsSnapshot.find(s => s.id === oi.menuItem.id);
+        const prevQty = prev?.qty ?? 0;
+        return oi.quantity > prevQty;
+      })
+      .map(oi => {
+        const prev = sentItemsSnapshot.find(s => s.id === oi.menuItem.id);
+        const newQty = oi.quantity - (prev?.qty ?? 0);
+        return { name: oi.menuItem.name, qty: newQty, notes: oi.notes };
+      });
+
+    const ok = await sendToKitchen(selectedTable.currentOrderId, newItems.length > 0 ? newItems : undefined);
     if (ok) {
       setKitchenSent(true);
-      toast.success(`Orden enviada a cocina — ${mergeGroupLabel ?? selectedTable.name}`);
+      // Update snapshot to current items
+      setSentItemsSnapshot(orderItems.map(i => ({ id: i.menuItem.id, qty: i.quantity })));
+      if (!kitchenSent) toast.success(`Orden enviada a cocina — ${mergeGroupLabel ?? selectedTable.name}`);
     }
     setSendingToKitchen(false);
   };
@@ -689,6 +711,7 @@ export default function POSClient() {
     setShowPaymentModal(false);
     setOrderItems([]); setSelectedTable(null); setView('tables');
     setKitchenSent(false);
+    setSentItemsSnapshot([]);
     toast.success(`Pago de $${total.toFixed(2)} procesado con ${method === 'efectivo' ? 'Efectivo' : 'Tarjeta'}. ¡Orden cerrada!`);
   };
 

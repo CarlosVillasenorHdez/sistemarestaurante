@@ -338,11 +338,42 @@ export function useOrderFlow() {
     }
   }, [supabase]);
 
-  // ── Send order to kitchen (sets kitchen_status to 'pendiente') ─────────────
-  // Call this when the cashier is done adding items and wants the kitchen to start.
-  // Until this is called the order exists in DB but is invisible to the KDS.
+  // ── Send order to kitchen — supports comandas ──────────────────────────────
+  // First send: sets kitchen_status = 'pendiente' (order becomes visible in KDS).
+  // Subsequent sends (comanda): if order is already in preparacion/lista,
+  // appends the new items as a kitchen_note instead of resetting status.
+  // Pass prevSentCount = number of items already sent to identify new ones.
 
-  const sendToKitchen = useCallback(async (orderId: string): Promise<boolean> => {
+  const sendToKitchen = useCallback(async (
+    orderId: string,
+    newItems?: { name: string; qty: number; notes?: string }[],
+  ): Promise<boolean> => {
+    // Fetch current status first
+    const { data: orderData } = await supabase
+      .from('orders')
+      .select('kitchen_status, kitchen_notes')
+      .eq('id', orderId)
+      .single();
+
+    const currentStatus = orderData?.kitchen_status ?? 'en_edicion';
+    const inProgress = currentStatus === 'preparacion' || currentStatus === 'lista';
+
+    if (inProgress && newItems && newItems.length > 0) {
+      // COMANDA: append new items as a kitchen note without changing status
+      const comandaText = '🔔 COMANDA ADICIONAL:\n' +
+        newItems.map(i => `  • ${i.qty}x ${i.name}${i.notes ? ` (${i.notes})` : ''}`).join('\n');
+      const existingNotes = orderData?.kitchen_notes || '';
+      const separator = existingNotes ? '\n\n' : '';
+      const { error } = await supabase.from('orders').update({
+        kitchen_notes: existingNotes + separator + comandaText,
+        updated_at: new Date().toISOString(),
+      }).eq('id', orderId);
+      if (error) { toast.error('Error al enviar comanda: ' + error.message); return false; }
+      toast.success('✅ Comanda adicional enviada a cocina');
+      return true;
+    }
+
+    // Normal first send
     const { error } = await supabase.from('orders').update({
       kitchen_status: 'pendiente',
       updated_at: new Date().toISOString(),
