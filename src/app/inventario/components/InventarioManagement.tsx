@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Plus, Search, Pencil, Trash2, X, AlertTriangle, Package, BoxSelect, History, ExternalLink, Phone, TrendingDown, TrendingUp, ArrowDownCircle, ArrowUpCircle, RefreshCw, Bell, Scale, BarChart2,  } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, X, AlertTriangle, Package, BoxSelect, History, ExternalLink, Phone, TrendingDown, TrendingUp, ArrowDownCircle, ArrowUpCircle, RefreshCw, Bell, Scale, BarChart2, Download } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import AnalisisDesperdicioTab from '@/app/inventario/components/AnalisisDesperdicioTab';
@@ -1054,8 +1054,7 @@ export default function InventarioManagement() {
                       className="py-2 rounded-lg text-xs font-semibold capitalize transition-all"
                       style={{
                         backgroundColor: movementForm.movementType === t
-                          ? t === 'entrada' ? '#22c55e' : t === 'salida' ? '#ef4444' : '#3b82f6'
-                          : 'rgba(255,255,255,0.07)',
+                          ? t === 'entrada' ? '#22c55e' : t === 'salida' ? '#ef4444' : '#3b82f6' :'rgba(255,255,255,0.07)',
                         color: movementForm.movementType === t ? 'white' : 'rgba(255,255,255,0.5)',
                       }}>
                       {t === 'entrada' ? '📥 Entrada' : t === 'salida' ? '📤 Salida' : '🔄 Ajuste'}

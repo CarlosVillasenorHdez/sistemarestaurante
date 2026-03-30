@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell,
 } from 'recharts';
-import { Building2, Calendar, TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check, FileText } from 'lucide-react';
+import { Building2, Calendar, TrendingUp, DollarSign, ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check, FileText } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 

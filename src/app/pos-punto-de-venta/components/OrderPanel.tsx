@@ -323,7 +323,7 @@ export default function OrderPanel({
                   style={{ backgroundColor: 'rgba(5,150,105,0.1)', color: '#059669', border: '1px solid rgba(5,150,105,0.25)' }}
                 >
                   <Send size={12} />
-                  {sendingToKitchen ? 'Enviando...' : 'Reenviar'}
+                  {sendingToKitchen ? 'Enviando...' : 'Enviar comanda'}
                 </button>
                 {onSendKitchenNote && (
                   <button

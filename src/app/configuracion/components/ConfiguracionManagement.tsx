@@ -105,6 +105,8 @@ const SECTIONS = [
 
 // ─── Layout Types ─────────────────────────────────────────────────────────────
 
+type ElementType = 'mesa' | 'pared' | 'bano' | 'barra' | 'entrada' | 'ventana' | 'decoracion';
+
 interface LayoutTable {
   id: string;
   number: number;
@@ -115,7 +117,19 @@ interface LayoutTable {
   h: number;
   shape: 'rect' | 'round';
   capacity: number;
+  elementType?: ElementType; // undefined = 'mesa' (backwards compat)
+  color?: string;            // custom color override
 }
+
+const ELEMENT_TYPES: { type: ElementType; label: string; emoji: string; color: string; defaultW: number; defaultH: number }[] = [
+  { type: 'mesa',       label: 'Mesa',       emoji: '🪑', color: '#1B3A6B', defaultW: 1, defaultH: 1 },
+  { type: 'pared',      label: 'Pared',      emoji: '🧱', color: '#6b7280', defaultW: 3, defaultH: 1 },
+  { type: 'bano',       label: 'Baño',       emoji: '🚻', color: '#0ea5e9', defaultW: 1, defaultH: 2 },
+  { type: 'barra',      label: 'Barra',      emoji: '🍺', color: '#92400e', defaultW: 3, defaultH: 1 },
+  { type: 'entrada',    label: 'Entrada',    emoji: '🚪', color: '#10b981', defaultW: 1, defaultH: 1 },
+  { type: 'ventana',    label: 'Ventana',    emoji: '🪟', color: '#38bdf8', defaultW: 2, defaultH: 1 },
+  { type: 'decoracion', label: 'Decoración', emoji: '🌿', color: '#84cc16', defaultW: 1, defaultH: 1 },
+];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -178,6 +192,7 @@ export default function ConfiguracionManagement() {
   const [newTableName, setNewTableName] = useState('');
   const [newTableCapacity, setNewTableCapacity] = useState(4);
   const [newTableShape, setNewTableShape] = useState<'rect' | 'round'>('rect');
+  const [newElementType, setNewElementType] = useState<ElementType>('mesa');
 
   // Clear tables confirmation
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -620,20 +635,28 @@ export default function ConfiguracionManagement() {
     );
   }
 
+  function addLayoutElement(type: ElementType = newElementType) {
+    const etConfig = ELEMENT_TYPES.find(e => e.type === type)!;
+    if (type === 'mesa') {
+      const tableNums = layoutTables.filter(t => !t.elementType || t.elementType === 'mesa').map(t => t.number);
+      const nextNum = tableNums.length > 0 ? Math.max(...tableNums) + 1 : 1;
+      setLayoutTables(prev => [...prev, {
+        id: crypto.randomUUID(), number: nextNum, name: `Mesa ${nextNum}`,
+        x: 1, y: 1, w: etConfig.defaultW, h: etConfig.defaultH,
+        shape: newTableShape, capacity: 4, elementType: 'mesa',
+      }]);
+    } else {
+      const count = layoutTables.filter(t => t.elementType === type).length + 1;
+      setLayoutTables(prev => [...prev, {
+        id: crypto.randomUUID(), number: 0, name: `${etConfig.label} ${count}`,
+        x: 1, y: 1, w: etConfig.defaultW, h: etConfig.defaultH,
+        shape: 'rect', capacity: 0, elementType: type, color: etConfig.color,
+      }]);
+    }
+  }
+
   function addLayoutTable() {
-    const nextNum = layoutTables.length > 0 ? Math.max(...layoutTables.map((t) => t.number)) + 1 : 1;
-    const newTable: LayoutTable = {
-      id: crypto.randomUUID(),
-      number: nextNum,
-      name: `Mesa ${nextNum}`,
-      x: 0,
-      y: 0,
-      w: 1,
-      h: 1,
-      shape: 'rect',
-      capacity: 4,
-    };
-    setLayoutTables((prev) => [...prev, newTable]);
+    addLayoutElement('mesa');
   }
 
   function removeLayoutTable(id: string) {
@@ -971,21 +994,26 @@ export default function ConfiguracionManagement() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex gap-2 mb-3">
-                        <button
-                          onClick={openAddForm}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all"
-                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
-                        >
-                          <Plus size={13} /> Agregar Mesa
-                        </button>
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.5)' }}>Agregar elemento:</p>
+                        <div className="grid grid-cols-2 gap-1.5 mb-2">
+                          {ELEMENT_TYPES.map(et => (
+                            <button
+                              key={et.type}
+                              onClick={() => et.type === 'mesa' ? openAddForm() : addLayoutElement(et.type)}
+                              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all"
+                              style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}
+                            >
+                              <span>{et.emoji}</span> {et.label}
+                            </button>
+                          ))}
+                        </div>
                         <button
                           onClick={() => setShowClearConfirm(true)}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
+                          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all"
                           style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)' }}
-                          title="Borrar todas las mesas"
                         >
-                          <XCircle size={13} />
+                          <XCircle size={13} /> Borrar todo
                         </button>
                       </div>
                     )}
@@ -1034,7 +1062,9 @@ export default function ConfiguracionManagement() {
                       if (!t) return null;
                       return (
                         <div className="rounded-xl p-4 mb-3" style={{ backgroundColor: '#1a2535', border: '1px solid rgba(245,158,11,0.25)' }}>
-                          <h3 className="text-sm font-semibold mb-3" style={{ color: '#f59e0b' }}>Editar Mesa {t.number}</h3>
+                          <h3 className="text-sm font-semibold mb-3" style={{ color: '#f59e0b' }}>
+                            {ELEMENT_TYPES.find(e => e.type === (t.elementType || 'mesa'))?.emoji} Editar {t.name}
+                          </h3>
                           <div className="space-y-3">
                             <div>
                               <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Nombre</label>
@@ -1048,6 +1078,7 @@ export default function ConfiguracionManagement() {
                                 <button onClick={() => updateLayoutTable(t.id, { capacity: Math.min(20, t.capacity + 1) })} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
                               </div>
                             </div>
+                            {(!t.elementType || t.elementType === 'mesa') && (
                             <div>
                               <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Forma</label>
                               <div className="flex gap-2">
@@ -1067,6 +1098,31 @@ export default function ConfiguracionManagement() {
                                 ))}
                               </div>
                             </div>
+                            )}
+
+                            {/* ── Size controls — for all element types ── */}
+                            <div>
+                              <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Tamaño (celdas)</label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Ancho</label>
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={() => updateLayoutTable(t.id, { w: Math.max(1, t.w - 1) })} className="w-6 h-6 rounded flex items-center justify-center font-bold text-xs" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
+                                    <span className="w-8 text-center text-xs font-bold" style={{ color: '#f1f5f9' }}>{t.w}</span>
+                                    <button onClick={() => updateLayoutTable(t.id, { w: Math.min(8, t.w + 1) })} className="w-6 h-6 rounded flex items-center justify-center font-bold text-xs" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Alto</label>
+                                  <div className="flex items-center gap-1">
+                                    <button onClick={() => updateLayoutTable(t.id, { h: Math.max(1, t.h - 1) })} className="w-6 h-6 rounded flex items-center justify-center font-bold text-xs" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
+                                    <span className="w-8 text-center text-xs font-bold" style={{ color: '#f1f5f9' }}>{t.h}</span>
+                                    <button onClick={() => updateLayoutTable(t.id, { h: Math.min(6, t.h + 1) })} className="w-6 h-6 rounded flex items-center justify-center font-bold text-xs" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
                           </div>
                         </div>
                       );
@@ -1476,15 +1532,24 @@ export default function ConfiguracionManagement() {
                           }}
                           disabled={printer.status === 'connecting'}
                           className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
-                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
-                          title={printerDraft.connectionType === 'usb' && printer.status !== 'connected' ? 'Conecta la impresora primero' : ''}>
-                          {(testingPrinter || printer.status === 'printing')
-                            ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
-                            : <Usb size={15} />}
-                          {testingPrinter || printer.status === 'printing' ?'Imprimiendo...' :'Ticket de prueba'}
+                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                          <Usb size={15} /> Conectar USB
                         </button>
                       )
                     )}
+
+                    {/* ── Botón Ticket de Prueba — siempre visible ── */}
+                    <button
+                      onClick={handleTestPrinter}
+                      disabled={testingPrinter || printer.status === 'printing'}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
+                      style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}
+                      title="Imprime un ticket de prueba para verificar la configuración">
+                      {(testingPrinter || printer.status === 'printing')
+                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
+                        : <Printer size={15} />}
+                      {testingPrinter || printer.status === 'printing' ? 'Imprimiendo...' : 'Ticket de prueba'}
+                    </button>
 
                     <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
                   </div>

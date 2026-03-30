@@ -289,7 +289,6 @@ export default function RHManagement() {
 
   const resumen = employees.map((emp) => {
     const vacs = vacaciones.filter((v) => v.employee_id === emp.id && v.estado === 'aprobado');
-            const horasEsteMes = attendanceSummary[emp.id] ?? 0;
     const perms = permisos.filter((p) => p.employee_id === emp.id && p.estado === 'aprobado');
     const tes = tiemposExtras.filter((t) => t.employee_id === emp.id && t.estado === 'aprobado');
 

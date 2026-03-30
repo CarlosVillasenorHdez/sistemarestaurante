@@ -14,7 +14,18 @@ export interface LayoutTablePosition {
   h: number;
   shape: 'rect' | 'round';
   capacity: number;
+  elementType?: string;
+  color?: string;
 }
+
+const ARCH_ELEMENT_CONFIG: Record<string, { emoji: string; bg: string; border: string; text: string; label: string }> = {
+  pared:      { emoji: '',    bg: '#374151', border: '#4b5563', text: '#9ca3af', label: '' },
+  bano:       { emoji: '🚻', bg: '#0c4a6e', border: '#075985', text: '#38bdf8', label: 'Baño' },
+  barra:      { emoji: '🍺', bg: '#451a03', border: '#78350f', text: '#f59e0b', label: 'Barra' },
+  entrada:    { emoji: '🚪', bg: '#052e16', border: '#14532d', text: '#4ade80', label: 'Entrada' },
+  ventana:    { emoji: '🪟', bg: '#082f49', border: '#0c4a6e', text: '#7dd3fc', label: 'Ventana' },
+  decoracion: { emoji: '🌿', bg: '#1a2e05', border: '#365314', text: '#84cc16', label: '' },
+};
 
 interface TableMapProps {
   tables: Table[];
@@ -205,7 +216,55 @@ export default function TableMap({
             onMouseUp={handleGridMouseUp}
             onMouseLeave={handleGridMouseUp}
           >
+            {/* ── Architectural elements layer ── */}
+            {layoutTables
+              .filter(lt => lt.elementType && lt.elementType !== 'mesa')
+              .map(lt => {
+                const cfg = ARCH_ELEMENT_CONFIG[lt.elementType!] ?? ARCH_ELEMENT_CONFIG['pared'];
+                const isPared = lt.elementType === 'pared' || lt.elementType === 'ventana';
+                return (
+                  <div
+                    key={`arch-${lt.id}`}
+                    className="absolute flex items-center justify-center select-none"
+                    style={{
+                      left: lt.x * CELL + 2,
+                      top: lt.y * CELL + 2,
+                      width: lt.w * CELL - 4,
+                      height: lt.h * CELL - 4,
+                      backgroundColor: lt.color ?? cfg.bg,
+                      border: `2px solid ${cfg.border}`,
+                      borderRadius: isPared ? '4px' : '10px',
+                      zIndex: 0,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {lt.elementType === 'pared' ? (
+                      <div className="w-full h-full" style={{
+                        backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 2px, transparent 2px, transparent 8px)',
+                      }} />
+                    ) : lt.elementType === 'ventana' ? (
+                      <div className="w-full h-full flex items-center justify-center" style={{
+                        background: 'repeating-linear-gradient(0deg, rgba(56,189,248,0.15) 0px, rgba(56,189,248,0.15) 4px, transparent 4px, transparent 8px)',
+                      }}>
+                        <span style={{ fontSize: '14px' }}>🪟</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        {cfg.emoji && <span style={{ fontSize: lt.w * CELL > 80 ? '20px' : '14px' }}>{cfg.emoji}</span>}
+                        {cfg.label && lt.w * CELL > 60 && (
+                          <span className="text-xs font-semibold" style={{ color: cfg.text, fontSize: '10px' }}>{lt.name}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            }
+
+            {/* ── Table cards ── */}
             {layoutTables.map((lt) => {
+              // Skip non-table architectural elements
+              if (lt.elementType && lt.elementType !== 'mesa') return null;
               // Find the matching live table by number
               const liveTable = tables.find((t) => t.number === lt.number);
               if (!liveTable) return null;
