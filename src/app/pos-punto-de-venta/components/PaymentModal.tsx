@@ -212,12 +212,6 @@ export default function PaymentModal({
     [personTotals]
   );
 
-  const [redeemPoints, setRedeemPoints] = useState(false);
-  const [pointsToRedeem, setPointsToRedeem] = useState(0);
-  const maxRedeemablePoints = selectedCustomer ? Math.min(selectedCustomer.points, Math.floor(total / POINTS_VALUE)) : 0;
-  const pointsDiscount = pointsToRedeem * POINTS_VALUE;
-  const effectiveTotal = Math.max(0, total - pointsDiscount);
-
   // ── Handlers ──
 
   const doRedeemIfNeeded = async () => {
