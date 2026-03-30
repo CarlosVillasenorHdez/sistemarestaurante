@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing, Scissors } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useFeatures, type Features } from '@/hooks/useFeatures';
@@ -31,6 +31,7 @@ const navGroups: { group: string; items: NavItem[] }[] = [
       { label: 'Punto de Venta', icon: ShoppingCart, href: '/pos-punto-de-venta', pageKey: 'pos' },
       { label: 'Mesero Móvil', icon: Smartphone, href: '/mesero', pageKey: 'mesero', feature: 'meseroMovil' as keyof Features },
       { label: 'Órdenes', icon: ClipboardList, href: '/orders-management', pageKey: 'orders' },
+      { label: 'Corte de Caja', icon: Scissors, href: '/corte-caja', pageKey: 'corte_caja' },
       { label: 'Cocina', icon: ChefHat, href: '/cocina', pageKey: 'cocina' },
       { label: 'Delivery', icon: Truck, href: '/delivery', pageKey: 'delivery', feature: 'delivery' as keyof Features },
     ],
