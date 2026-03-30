@@ -22,6 +22,7 @@ interface OrderPanelProps {
   onUpdateNote: (itemId: string, note: string) => void;
   kitchenSent: boolean;
   sendingToKitchen: boolean;
+  onSendKitchenNote?: (note: string) => void;
 }
 
 export default function OrderPanel({
@@ -42,10 +43,13 @@ export default function OrderPanel({
   onUpdateNote,
   kitchenSent,
   sendingToKitchen,
+  onSendKitchenNote,
 }: OrderPanelProps) {
   const [showDiscount, setShowDiscount] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
   const [expandedNoteId, setExpandedNoteId] = useState<string | null>(null);
+  const [showKitchenNote, setShowKitchenNote] = useState(false);
+  const [kitchenNoteText, setKitchenNoteText] = useState('');
 
   const tableLabel = mergeGroupLabel ?? (selectedTable ? selectedTable.name : 'Sin mesa');
   // Real piece count (not distinct dishes)
@@ -311,15 +315,27 @@ export default function OrderPanel({
                 {sendingToKitchen ? 'Enviando...' : 'Enviar a Cocina'}
               </button>
             ) : (
-              <button
-                onClick={onSendToKitchen}
-                disabled={sendingToKitchen}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
-                style={{ backgroundColor: 'rgba(5,150,105,0.1)', color: '#059669', border: '1px solid rgba(5,150,105,0.25)' }}
-              >
-                <Send size={13} />
-                {sendingToKitchen ? 'Enviando...' : 'Reenviar a Cocina'}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={onSendToKitchen}
+                  disabled={sendingToKitchen}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+                  style={{ backgroundColor: 'rgba(5,150,105,0.1)', color: '#059669', border: '1px solid rgba(5,150,105,0.25)' }}
+                >
+                  <Send size={12} />
+                  {sendingToKitchen ? 'Enviando...' : 'Reenviar'}
+                </button>
+                {onSendKitchenNote && (
+                  <button
+                    onClick={() => setShowKitchenNote(true)}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all"
+                    style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.25)' }}
+                    title="Enviar nota urgente a cocina"
+                  >
+                    <MessageSquare size={13} /> Nota
+                  </button>
+                )}
+              </div>
             )}
 
             <button
@@ -344,6 +360,51 @@ export default function OrderPanel({
               >
                 <Plus size={13} />
                 Agregar más
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal nota a cocina */}
+      {showKitchenNote && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-sm rounded-2xl p-5 space-y-3 bg-white shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare size={16} style={{ color: '#d97706' }} />
+                <h3 className="font-bold text-gray-900 text-sm">Nota urgente a cocina</h3>
+              </div>
+              <button onClick={() => { setShowKitchenNote(false); setKitchenNoteText(''); }}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
+            </div>
+            <textarea
+              value={kitchenNoteText}
+              onChange={e => setKitchenNoteText(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border text-sm resize-none outline-none focus:border-amber-400"
+              style={{ borderColor: '#e5e7eb', backgroundColor: '#fefce8' }}
+              placeholder="Ej: sin cebolla, alergia al gluten, cambiar guarnición..."
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { setShowKitchenNote(false); setKitchenNoteText(''); }}
+                className="flex-1 py-2 rounded-xl text-sm font-semibold bg-gray-100 text-gray-600">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (kitchenNoteText.trim() && onSendKitchenNote) {
+                    onSendKitchenNote(kitchenNoteText.trim());
+                    setKitchenNoteText('');
+                    setShowKitchenNote(false);
+                  }
+                }}
+                disabled={!kitchenNoteText.trim()}
+                className="flex-1 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+                📝 Enviar a cocina
               </button>
             </div>
           </div>

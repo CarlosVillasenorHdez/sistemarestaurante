@@ -14,6 +14,7 @@ type KitchenStatus = 'pendiente' | 'preparacion' | 'lista' | 'entregada';
 type RealtimeStatus = 'conectado' | 'reconectando' | 'desconectado';
 
 interface KitchenOrderItem {
+  id: string;    // order_item id for per-item marking
   name: string;
   qty: number;
   emoji: string;
@@ -68,15 +69,30 @@ interface OrderCardProps {
   onCancel: (id: string, mesa: string) => void;
   tick: number;
   isDragging: boolean;
+  readyItems: Set<string>;
+  onToggleItem: (itemId: string) => void;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragEnd: () => void;
 }
 
-function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, onDragStart, onDragEnd }: OrderCardProps) {
+function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, onDragStart, onDragEnd, readyItems, onToggleItem }: OrderCardProps) {
   const elapsed = calcElapsed(order.createdAt);
   const cfg = STATUS_CONFIG[order.kitchenStatus];
-  const isUrgent = elapsed >= 20 && order.kitchenStatus !== 'lista';
-  const isWarning = elapsed >= 12 && elapsed < 20 && order.kitchenStatus !== 'lista';
+  const isLista    = order.kitchenStatus === 'lista';
+  // Niveles de urgencia por tiempo (ignorar si ya está lista)
+  const isCritical = !isLista && elapsed >= 30;
+  const isUrgent   = !isLista && elapsed >= 20 && elapsed < 30;
+  const isWarning  = !isLista && elapsed >= 10 && elapsed < 20;
+  const isOk       = isLista || elapsed < 10;
+
+  // Color dinámico para el borde y badge de tiempo
+  const timeColor  = isCritical ? '#ef4444' : isUrgent ? '#f97316' : isWarning ? '#f59e0b' : isOk && isLista ? '#22c55e' : 'rgba(255,255,255,0.3)';
+  const timeBg     = isCritical ? 'rgba(239,68,68,0.15)' : isUrgent ? 'rgba(249,115,22,0.15)' : isWarning ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.05)';
+  const borderColor = isCritical ? 'rgba(239,68,68,0.6)' : isUrgent ? 'rgba(249,115,22,0.5)' : isWarning ? 'rgba(245,158,11,0.4)' : cfg.border;
+
+  // Barra de tiempo: 0→verde, 10→amarillo, 20→naranja, 30→rojo
+  const timeBarPct = Math.min((elapsed / 35) * 100, 100);
+  const timeBarColor = isCritical ? '#ef4444' : isUrgent ? '#f97316' : isWarning ? '#f59e0b' : '#22c55e';
 
   const nextStatus: Record<KitchenStatus, KitchenStatus | null> = {
     pendiente: 'preparacion', preparacion: 'lista', lista: null, entregada: null,
@@ -95,12 +111,18 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
       className="rounded-xl p-4 mb-3 transition-all duration-200 cursor-grab active:cursor-grabbing select-none"
       style={{
         backgroundColor: '#1a2535',
-        border: `1px solid ${isUrgent ? 'rgba(239,68,68,0.5)' : isWarning ? 'rgba(245,158,11,0.4)' : cfg.border}`,
-        boxShadow: isUrgent ? '0 0 0 1px rgba(239,68,68,0.2)' : 'none',
+        border: `1px solid ${borderColor}`,
+        boxShadow: isCritical ? '0 0 0 2px rgba(239,68,68,0.15)' : isUrgent ? '0 0 0 1px rgba(249,115,22,0.1)' : 'none',
         opacity: isDragging ? 0.4 : 1,
         transform: isDragging ? 'scale(0.98)' : 'scale(1)',
       }}
     >
+      {/* Barra de tiempo en la parte superior de la tarjeta */}
+      <div className="w-full h-1 rounded-full mb-3 overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="h-full rounded-full transition-all duration-1000"
+          style={{ width: `${timeBarPct}%`, backgroundColor: timeBarColor }} />
+      </div>
+
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
@@ -108,9 +130,14 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
           <div>
             <div className="flex items-center gap-2">
               <span className="text-base font-bold" style={{ color: '#f1f5f9' }}>{order.mesa}</span>
-              {isUrgent && (
+              {isCritical && (
                 <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
-                  <AlertCircle size={10} /> Urgente
+                  <AlertCircle size={10} /> ¡Urgente!
+                </span>
+              )}
+              {isUrgent && !isCritical && (
+                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(249,115,22,0.15)', color: '#fb923c', border: '1px solid rgba(249,115,22,0.3)' }}>
+                  <Clock size={10} /> Demorado
                 </span>
               )}
             </div>
@@ -120,7 +147,7 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
         <div className="flex flex-col items-end gap-1">
           <div
             className="flex items-center gap-1 text-xs px-2 py-1 rounded-full font-semibold"
-            style={{ backgroundColor: isUrgent ? 'rgba(239,68,68,0.15)' : isWarning ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.07)', color: isUrgent ? '#f87171' : isWarning ? '#f59e0b' : 'rgba(255,255,255,0.5)' }}
+            style={{ backgroundColor: timeBg, color: timeColor }}
           >
             <Clock size={10} />
             <span>{elapsed} min</span>
@@ -129,24 +156,50 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
         </div>
       </div>
 
-      {/* Items */}
+      {/* Items — con check individual por platillo */}
       <div className="space-y-1.5 mb-3">
-        {order.items.map((item, i) => (
-          <div key={i} className="rounded-lg overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
-            <div className="flex items-center gap-2 px-3 py-2">
-              <span className="text-base leading-none">{item.emoji}</span>
-              <span className="flex-1 text-sm font-medium" style={{ color: '#f1f5f9' }}>{item.name}</span>
-              <span className="text-sm font-bold px-2 py-0.5 rounded-md" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>×{item.qty}</span>
-            </div>
-            {item.notes && (
-              <div className="px-3 pb-2">
-                <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#fbbf24' }}>
-                  📝 {item.notes}
+        {order.items.map((item, i) => {
+          const itemKey = item.id || `${order.id}-${i}`;
+          const isDone  = readyItems.has(itemKey);
+          return (
+            <div key={itemKey} className="rounded-lg overflow-hidden transition-all"
+              style={{ backgroundColor: isDone ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.04)',
+                       border: isDone ? '1px solid rgba(34,197,94,0.25)' : '1px solid transparent' }}>
+              <div className="flex items-center gap-2 px-3 py-2">
+                <span className="text-base leading-none">{item.emoji}</span>
+                <span className="flex-1 text-sm font-medium"
+                  style={{ color: isDone ? '#86efac' : '#f1f5f9',
+                           textDecoration: isDone ? 'line-through' : 'none',
+                           opacity: isDone ? 0.7 : 1 }}>
+                  {item.name}
                 </span>
+                <span className="text-sm font-bold px-2 py-0.5 rounded-md"
+                  style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
+                  ×{item.qty}
+                </span>
+                {/* Botón check individual */}
+                <button
+                  onClick={() => onToggleItem(itemKey)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    backgroundColor: isDone ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
+                    border: `1px solid ${isDone ? 'rgba(34,197,94,0.4)' : 'rgba(255,255,255,0.15)'}`,
+                    color: isDone ? '#4ade80' : 'rgba(255,255,255,0.3)',
+                  }}
+                  title={isDone ? 'Marcar como pendiente' : 'Marcar como listo'}>
+                  <Check size={12} />
+                </button>
               </div>
-            )}
-          </div>
-        ))}
+              {item.notes && (
+                <div className="px-3 pb-2">
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(245,158,11,0.1)', color: '#fbbf24' }}>
+                    📝 {item.notes}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Kitchen notes */}
@@ -198,6 +251,12 @@ export default function KitchenModule() {
   const device = useDevice();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
+  const [readyItems, setReadyItems] = useState<Set<string>>(new Set());
+  const toggleReadyItem = (key: string) => setReadyItems(prev => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
   const [loading, setLoading] = useState(true);
   const [newOrderAlert, setNewOrderAlert] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('reconectando');
@@ -540,6 +599,8 @@ export default function KitchenModule() {
                               isDragging={draggingId === order.id}
                               onDragStart={handleDragStart}
                               onDragEnd={handleDragEnd}
+                              readyItems={readyItems}
+                              onToggleItem={toggleReadyItem}
                             />
                           ))}
                           {/* Drop indicator at bottom when column has cards */}

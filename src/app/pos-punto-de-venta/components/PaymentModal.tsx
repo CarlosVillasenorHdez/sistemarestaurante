@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { usePrinter } from '@/hooks/usePrinter';
 import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft } from 'lucide-react';
 
 interface OrderItemRef {
@@ -21,6 +22,15 @@ interface PaymentModalProps {
   orderNumber?: string;
   mesa?: string;
   mesero?: string;
+  restaurantName?: string;
+  branchName?: string;
+  printerConfig?: {
+    headerLine1?: string; headerLine2?: string; footerText?: string;
+    separatorChar?: string; paperWidth?: 58 | 80; autoCut?: boolean;
+    showOrderNumber?: boolean; showDate?: boolean; showMesa?: boolean;
+    showMesero?: boolean; showSubtotal?: boolean; showIva?: boolean;
+    showDiscount?: boolean; showUnitPrice?: boolean;
+  };
   onClose: () => void;
   onComplete: (method: 'efectivo' | 'tarjeta', amountPaid: number) => void;
 }
@@ -49,12 +59,12 @@ function personSubtotal(person: Person, items: OrderItemRef[], ivaRate: number):
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PaymentModal({
-  total, subtotal, iva, discount = 0, items = [],
-  orderNumber, mesa, mesero,
-  onClose, onComplete,
+  total, onClose, onComplete, orderNumber, mesa, mesero, items, subtotal, iva, discount,
+  restaurantName, branchName, printerConfig,
 }: PaymentModalProps) {
 
   const ivaRate = subtotal && subtotal > 0 ? (iva ?? 0) / subtotal : 0.16;
+
 
   // Modes: 'single' | 'split_amount' | 'split_items'
   const [mode, setMode] = useState<'single' | 'split_amount' | 'split_items'>('single');
@@ -63,6 +73,56 @@ export default function PaymentModal({
   const [method, setMethod] = useState<'efectivo' | 'tarjeta'>('efectivo');
   const [cashInput, setCashInput] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const printer = usePrinter();
+  const [printing, setPrinting] = useState(false);
+
+  const handlePrint = useCallback(async () => {
+    if (!printer.supported) {
+      alert('Impresión USB requiere Chrome o Edge. Conecta la impresora en Configuración → Impresora.');
+      return;
+    }
+    if (printer.status !== 'connected') {
+      const ok = await printer.connect();
+      if (!ok) return;
+    }
+    setPrinting(true);
+    const cashPaid = parseFloat(cashInput) || total;
+    const ok = await printer.printTicket({
+      restaurantName: restaurantName || 'Restaurante',
+      branchName,
+      headerLine1:  printerConfig?.headerLine1,
+      headerLine2:  printerConfig?.headerLine2,
+      orderNumber:  orderNumber || 'S/N',
+      mesa:         mesa || '—',
+      mesero:       mesero || '—',
+      items:        (items ?? []).map(i => ({ name: i.name, qty: i.quantity, price: i.price, emoji: i.emoji })),
+      subtotal:     subtotal ?? total,
+      iva:          iva      ?? 0,
+      discount:     discount ?? 0,
+      total,
+      payMethod:    method,
+      amountPaid:   method === 'efectivo' ? cashPaid : undefined,
+      change:       method === 'efectivo' && cashPaid > total ? cashPaid - total : undefined,
+      footer:       printerConfig?.footerText,
+      paperWidth:   printerConfig?.paperWidth ?? 80,
+      autoCut:      printerConfig?.autoCut    ?? true,
+      separatorChar:   printerConfig?.separatorChar,
+      showOrderNumber: printerConfig?.showOrderNumber,
+      showDate:        printerConfig?.showDate,
+      showMesa:        printerConfig?.showMesa,
+      showMesero:      printerConfig?.showMesero,
+      showSubtotal:    printerConfig?.showSubtotal,
+      showIva:         printerConfig?.showIva,
+      showDiscount:    printerConfig?.showDiscount,
+      showUnitPrice:   printerConfig?.showUnitPrice,
+      copies: 1,
+    });
+    setPrinting(false);
+    if (!ok && printer.error) alert('Error al imprimir: ' + printer.error);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printer, cashInput, total, method, restaurantName, branchName, orderNumber,
+      mesa, mesero, items, subtotal, iva, discount, printerConfig]);
 
   // ── Split by amount ──
   interface AmountPart { amount: string; method: 'efectivo' | 'tarjeta' }
@@ -90,14 +150,14 @@ export default function PaymentModal({
 
   // Items assigned totals
   const personTotals = useMemo(() =>
-    persons.map(p => ({ id: p.id, total: personSubtotal(p, items, ivaRate) })),
+    persons.map(p => ({ id: p.id, total: personSubtotal(p, items ?? [], ivaRate) })),
     [persons, items, ivaRate]
   );
 
   // Remaining qty per item (not yet assigned to anyone)
   const remainingQty = useMemo(() => {
     const rem: Record<string, number> = {};
-    items.forEach(item => { rem[item.id] = item.quantity; });
+    (items ?? []).forEach(item => { rem[item.id] = item.quantity; });
     persons.forEach(p => {
       Object.entries(p.itemSplit).forEach(([id, qty]) => {
         rem[id] = (rem[id] ?? 0) - qty;
@@ -107,7 +167,7 @@ export default function PaymentModal({
   }, [persons, items]);
 
   const allItemsAssigned = useMemo(() =>
-    items.every(item => (remainingQty[item.id] ?? 0) === 0),
+    (items ?? []).every(item => (remainingQty[item.id] ?? 0) === 0),
     [items, remainingQty]
   );
 
@@ -143,7 +203,7 @@ export default function PaymentModal({
 
   // Assign / remove qty from active person
   const assignItem = (itemId: string, delta: number) => {
-    const item = items.find(i => i.id === itemId);
+    const item = (items ?? []).find(i => i.id === itemId);
     if (!item) return;
     setPersons(prev => prev.map(p => {
       if (p.id !== activePerson) return p;
@@ -402,11 +462,11 @@ export default function PaymentModal({
                   </div>
 
                   {/* Items list */}
-                  {items.length === 0 ? (
+                  {(items ?? []).length === 0 ? (
                     <p className="text-xs text-center text-gray-400 py-4">Sin platillos en la orden</p>
                   ) : (
                     <div className="space-y-2">
-                      {items.map(item => {
+                      {(items ?? []).map(item => {
                         const activePersonData = persons.find(p => p.id === activePerson)!;
                         const assignedToActive = activePersonData?.itemSplit[item.id] ?? 0;
                         const remaining = remainingQty[item.id] ?? 0;
@@ -552,8 +612,16 @@ export default function PaymentModal({
 
         {/* Footer */}
         <div className="flex items-center gap-3 px-6 py-4 border-t" style={{ borderColor: '#f3f4f6' }}>
-          <button className="btn-secondary flex items-center gap-2 text-xs">
-            <Printer size={14} /> Imprimir
+          <button
+            onClick={handlePrint}
+            disabled={printing || printer.status === 'printing'}
+            className="btn-secondary flex items-center gap-2 text-xs disabled:opacity-50"
+            title={printer.status === 'connected' ? `Impresora: ${printer.device?.name}` : 'Clic para conectar impresora'}
+          >
+            {printing || printer.status === 'printing'
+              ? <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(0,0,0,0.15)', borderTopColor: '#374151' }} />
+              : <Printer size={14} />}
+            {printing ? 'Imprimiendo...' : printer.status === 'connected' ? 'Imprimir ticket' : 'Imprimir ticket'}
           </button>
           <div className="flex-1" />
           <button onClick={onClose} className="btn-secondary">Cancelar</button>
@@ -576,7 +644,7 @@ export default function PaymentModal({
           )}
           {mode === 'split_items' && (
             <button onClick={handleConfirmSplitItems}
-              disabled={loading || !allItemsAssigned || (items.length > 0 && itemsStep === 'assign')}
+              disabled={loading || !allItemsAssigned || ((items?.length ?? 0) > 0 && itemsStep === 'assign')}
               className="btn-primary flex items-center gap-2 disabled:opacity-50">
               {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
               {loading ? 'Procesando...' : 'Confirmar cobro'}
