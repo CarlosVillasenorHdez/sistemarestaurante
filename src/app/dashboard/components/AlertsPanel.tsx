@@ -135,7 +135,7 @@ export default function AlertsPanel() {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin divide-y" style={{ divideColor: '#f9fafb' }}>
+      <div className="flex-1 overflow-y-auto scrollbar-thin divide-y" style={{}}>
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="flex items-start gap-3 px-5 py-3.5 animate-pulse">

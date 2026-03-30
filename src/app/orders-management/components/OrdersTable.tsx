@@ -165,7 +165,7 @@ export default function OrdersTable() {
       const orderDate = o.openedAt ? o.openedAt.slice(0, 10) : '';
       const matchFrom = !dateFrom || orderDate >= dateFrom;
       const matchTo = !dateTo || orderDate <= dateTo;
-      const matchBranch = !activeBranch?.name || !o.branch || o.branch === activeBranch.name;
+      const matchBranch = !activeBranch || !o.branch || o.branch === activeBranch;
       return matchStatus && matchMesero && matchSearch && matchFrom && matchTo && matchBranch;
     });
 
@@ -180,7 +180,7 @@ export default function OrdersTable() {
       return 0;
     });
     return result;
-  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir, dateFrom, dateTo, activeBranch?.name]);
+  }, [orders, search, statusFilter, meseroFilter, sortField, sortDir, dateFrom, dateTo, activeBranch]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -321,10 +321,10 @@ export default function OrdersTable() {
           )}
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          {activeBranch?.name && (
+          {activeBranch && (
             <span className="text-xs px-2.5 py-2 rounded-lg font-semibold"
               style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#d97706', border: '1px solid rgba(245,158,11,0.25)' }}>
-              📍 {activeBranch.name}
+              📍 {activeBranch}
             </span>
           )}
           <button onClick={handleRefresh} className="btn-secondary py-2 px-3 flex items-center gap-1.5">

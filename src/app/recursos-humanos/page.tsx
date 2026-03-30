@@ -5,7 +5,7 @@ import RHManagement from './components/RHManagement';
 
 export default function RecursosHumanosPage() {
   return (
-    <AppLayout>
+    <AppLayout title="Recursos Humanos" subtitle="Vacaciones y permisos">
       <RHManagement />
     </AppLayout>
   );

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import {
   DollarSign, CreditCard, Banknote, TrendingUp, Clock, CheckCircle,
@@ -64,6 +65,8 @@ function fmt(n: number) {
 
 export default function CorteCaja() {
   const supabase = createClient();
+  const { tenantId } = useAuth();
+  const DEFAULT_TENANT = tenantId ?? '00000000-0000-0000-0000-000000000001';
 
   const [corteActivo, setCorteActivo] = useState<CorteCajaRecord | null>(null);
   const [historial, setHistorial] = useState<CorteCajaRecord[]>([]);
@@ -201,7 +204,7 @@ export default function CorteCaja() {
     const { error } = await supabase.from('cortes_caja').insert({
       fondo_inicial: fondo,
       apertura_por: aperturaPor.trim(),
-      tenant_id: '00000000-0000-0000-0000-000000000001',
+      tenant_id: DEFAULT_TENANT,
       status: 'abierto',
     });
     if (error) { toast.error('Error al abrir caja: ' + error.message); setAbriendo(false); return; }

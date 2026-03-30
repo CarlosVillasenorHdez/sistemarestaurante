@@ -5,7 +5,7 @@ import AlarmasManagement from './components/AlarmasManagement';
 
 export default function AlarmasPage() {
   return (
-    <AppLayout>
+    <AppLayout title="Alarmas" subtitle="Alertas del sistema">
       <AlarmasManagement />
     </AppLayout>
   );

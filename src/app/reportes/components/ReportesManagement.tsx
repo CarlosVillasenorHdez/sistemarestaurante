@@ -861,7 +861,7 @@ export default function ReportesManagement() {
                   value={customStart}
                   onChange={e => setCustomStart(e.target.value)}
                   className="border rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2"
-                  style={{ borderColor: '#d1d5db', focusRingColor: '#f59e0b' }}
+                  style={{ borderColor: '#d1d5db' }}
                 />
                 <span className="text-gray-400 text-sm">—</span>
                 <input

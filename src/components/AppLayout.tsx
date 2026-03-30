@@ -9,10 +9,9 @@ interface AppLayoutProps {
   children: React.ReactNode;
   title: string;
   subtitle?: string;
-  lastUpdated?: string;
 }
 
-export default function AppLayout({ children, title, subtitle, lastUpdated }: AppLayoutProps) {
+export default function AppLayout({ children, title, subtitle }: AppLayoutProps) {
   const device = useDevice();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -54,7 +53,6 @@ export default function AppLayout({ children, title, subtitle, lastUpdated }: Ap
           title={title}
           subtitle={subtitle}
           onMenuToggle={() => setMobileSidebarOpen(true)}
-          lastUpdated={lastUpdated}
         />
         <main className="flex-1 overflow-y-auto scrollbar-thin">
           <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6">

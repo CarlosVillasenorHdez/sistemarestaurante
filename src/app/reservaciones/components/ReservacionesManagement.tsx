@@ -57,7 +57,7 @@ const MONTHS_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
 const emptyForm = {
   guestName: '', guestPhone: '', guestEmail: '', partySize: 2,
   reservationDate: new Date().toISOString().split('T')[0],
-  reservationTime: '13:00', tableId: '', status: 'confirmada' as const, notes: '',
+  reservationTime: '13:00', tableId: '', status: 'confirmada' as Reservation['status'], notes: '',
 };
 
 export default function ReservacionesManagement() {
