@@ -66,7 +66,6 @@ export default function PaymentModal({
 }: PaymentModalProps) {
 
   const supabase = createClient();
-  const supabase = createClient();
   const ivaRate = subtotal && subtotal > 0 ? (iva ?? 0) / subtotal : 0.16;
 
   // ── Loyalty customer search ──
@@ -103,33 +102,6 @@ export default function PaymentModal({
   const effectiveTotal = Math.max(0, total - pointsDiscount);
 
   React.useEffect(() => { setRedeemPoints(false); setPointsToRedeem(0); }, [selectedCustomer]);
-
-  // ── Loyalty customer search ──
-  const [loyaltySearch, setLoyaltySearch] = useState('');
-  const [loyaltyResults, setLoyaltyResults] = useState<{ id: string; name: string; phone: string; points: number }[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string; phone: string; points: number } | null>(null);
-  const [loyaltySearching, setLoyaltySearching] = useState(false);
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (loyaltySearch.trim().length < 2) { setLoyaltyResults([]); return; }
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
-    searchTimerRef.current = setTimeout(async () => {
-      setLoyaltySearching(true);
-      const { data } = await supabase
-        .from('loyalty_customers')
-        .select('id, name, phone, points')
-        .or(`name.ilike.%${loyaltySearch}%,phone.ilike.%${loyaltySearch}%`)
-        .eq('is_active', true)
-        .limit(5);
-      setLoyaltyResults(data || []);
-      setLoyaltySearching(false);
-    }, 300);
-  }, [loyaltySearch]);
-
-  const pointsToEarn = selectedCustomer ? Math.floor((total) / 10) : 0;
-
-
   // Modes: 'single' | 'split_amount' | 'split_items'
   const [mode, setMode] = useState<'single' | 'split_amount' | 'split_items'>('single');
 
@@ -242,27 +214,44 @@ export default function PaymentModal({
 
   // ── Handlers ──
 
+  const doRedeemIfNeeded = async () => {
+    if (!redeemPoints || !selectedCustomer || pointsToRedeem <= 0) return;
+    await supabase.from('loyalty_transactions').insert({
+      customer_id: selectedCustomer.id,
+      type: 'canje',
+      points: pointsToRedeem,
+      amount: pointsDiscount,
+      notes: `Canje en cobro — descuento $${pointsDiscount.toFixed(2)}`,
+    });
+    await supabase.from('loyalty_customers')
+      .update({ points: selectedCustomer.points - pointsToRedeem, updated_at: new Date().toISOString() })
+      .eq('id', selectedCustomer.id);
+  };
+
   const handleConfirmSingle = async () => {
-    if (method === 'efectivo' && cashAmount < total) return;
+    if (method === 'efectivo' && cashAmount < effectiveTotal) return;
     setLoading(true);
-    await new Promise(r => setTimeout(r, 500));
+    await doRedeemIfNeeded();
+    await new Promise(r => setTimeout(r, 300));
     setLoading(false);
-    onComplete(method, method === 'efectivo' ? cashAmount : total, selectedCustomer?.id ?? null);
+    onComplete(method, method === 'efectivo' ? cashAmount : effectiveTotal, selectedCustomer?.id ?? null);
   };
 
   const handleConfirmSplitAmount = async () => {
     if (!splitAmountValid) return;
     setLoading(true);
-    await new Promise(r => setTimeout(r, 500));
+    await doRedeemIfNeeded();
+    await new Promise(r => setTimeout(r, 300));
     setLoading(false);
-    onComplete(amountParts[0].method, total, selectedCustomer?.id ?? null);
+    onComplete(amountParts[0].method, effectiveTotal, selectedCustomer?.id ?? null);
   };
 
   const handleConfirmSplitItems = async () => {
     setLoading(true);
-    await new Promise(r => setTimeout(r, 500));
+    await doRedeemIfNeeded();
+    await new Promise(r => setTimeout(r, 300));
     setLoading(false);
-    onComplete('efectivo', total, selectedCustomer?.id ?? null);
+    onComplete('efectivo', effectiveTotal, selectedCustomer?.id ?? null);
   };
 
   // Assign / remove qty from active person
