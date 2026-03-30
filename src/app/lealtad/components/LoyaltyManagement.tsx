@@ -26,12 +26,37 @@ interface LoyaltyTransaction {
   createdAt: string;
 }
 
-const POINTS_PER_PESO = 1; // 1 punto por cada $10 gastados
-const PESOS_PER_POINT = 10;
-const POINTS_VALUE = 0.5; // $0.50 por punto al canjear
+// Config loaded dynamically from system_config — see loadLoyaltyConfig()
+const DEFAULT_PESOS_PER_POINT = 10;
+const DEFAULT_POINTS_VALUE = 0.5;
 
 export default function LoyaltyManagement() {
   const supabase = createClient();
+
+  // ── Loyalty config from system_config ────────────────────────────────────
+  const [programName, setProgramName] = useState('Club de Puntos');
+  const [pesosPerPoint, setPesosPerPoint] = useState(DEFAULT_PESOS_PER_POINT);
+  const [pointValue, setPointValue] = useState(DEFAULT_POINTS_VALUE);
+  const [minRedeem, setMinRedeem] = useState(50);
+  const [levels, setLevels] = useState<{name:string;min:number;color:string;benefit:string}[]>([]);
+
+  useEffect(() => {
+    supabase.from('system_config')
+      .select('config_key, config_value')
+      .like('config_key', 'loyalty_%')
+      .then(({ data }) => {
+        const map: Record<string, string> = {};
+        (data || []).forEach((r: any) => { map[r.config_key] = r.config_value; });
+        if (map['loyalty_program_name'])    setProgramName(map['loyalty_program_name']);
+        if (map['loyalty_pesos_per_point']) setPesosPerPoint(Number(map['loyalty_pesos_per_point']));
+        if (map['loyalty_point_value'])     setPointValue(Number(map['loyalty_point_value']));
+        if (map['loyalty_min_redeem'])      setMinRedeem(Number(map['loyalty_min_redeem']));
+        if (map['loyalty_levels']) {
+          try { setLevels(JSON.parse(map['loyalty_levels'])); } catch {}
+        }
+      });
+  }, []);
+
   const [customers, setCustomers] = useState<LoyaltyCustomer[]>([]);
   const [transactions, setTransactions] = useState<LoyaltyTransaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,9 +125,9 @@ export default function LoyaltyManagement() {
 
     let points = 0;
     if (showTransaction === 'acumulacion') {
-      points = Math.floor(txForm.amount / PESOS_PER_POINT) * POINTS_PER_PESO;
+      points = Math.floor(txForm.amount / pesosPerPoint);
     } else {
-      points = Math.floor(txForm.amount / POINTS_VALUE);
+      points = Math.floor(txForm.amount / pointValue);
       if (points > selectedCustomer.points) {
         toast.error(`El cliente solo tiene ${selectedCustomer.points} puntos disponibles`);
         return;
@@ -134,7 +159,7 @@ export default function LoyaltyManagement() {
 
       toast.success(showTransaction === 'acumulacion'
         ? `+${points} puntos acumulados`
-        : `${points} puntos canjeados por $${(points * POINTS_VALUE).toFixed(2)}`
+        : `${points} puntos canjeados por $${(points * pointValue).toFixed(2)}`
       );
       setShowTransaction(null);
       setTxForm({ amount: 0, notes: '' });
@@ -167,7 +192,7 @@ export default function LoyaltyManagement() {
         {[
           { label: 'Miembros Activos', value: totalMembers, icon: Users, color: '#1B3A6B' },
           { label: 'Puntos en Circulación', value: totalPoints.toLocaleString(), icon: Star, color: '#f59e0b' },
-          { label: 'Valor en Puntos', value: `$${(totalPoints * POINTS_VALUE).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, icon: Gift, color: '#10b981' },
+          { label: 'Valor en Puntos', value: `$${(totalPoints * pointValue).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, icon: Gift, color: '#10b981' },
           { label: 'Visitas Totales', value: customers.reduce((s, c) => s + c.totalVisits, 0), icon: TrendingUp, color: '#8b5cf6' },
         ].map(k => (
           <div key={k.label} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 flex items-center gap-3">
@@ -189,8 +214,8 @@ export default function LoyaltyManagement() {
           <span className="text-sm font-medium text-amber-800">Reglas del Programa</span>
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs text-amber-700">
-          <span>• 1 punto por cada ${PESOS_PER_POINT} gastados</span>
-          <span>• Cada punto vale ${POINTS_VALUE} al canjear</span>
+          <span>• 1 punto por cada ${pesosPerPoint} pesos gastados</span>
+          <span>• Cada punto vale $${pointValue.toFixed(2)} al canjear</span>
         </div>
       </div>
 
@@ -272,8 +297,8 @@ export default function LoyaltyManagement() {
                 {txForm.amount > 0 && (
                   <p className="text-xs text-amber-600 mt-1">
                     {showTransaction === 'acumulacion'
-                      ? `= ${Math.floor(txForm.amount / PESOS_PER_POINT)} puntos a acumular`
-                      : `= ${Math.floor(txForm.amount / POINTS_VALUE)} puntos a canjear`
+                      ? `= ${Math.floor(txForm.amount / pesosPerPoint)} puntos a acumular`
+                      : `= ${Math.floor(txForm.amount / pointValue)} puntos a canjear`
                     }
                   </p>
                 )}

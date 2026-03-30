@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { usePrinter } from '@/hooks/usePrinter';
 import { createClient } from '@/lib/supabase/client';
+import { useFeatures } from '@/hooks/useFeatures';
 import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft, Star, Search, UserCheck, XCircle } from 'lucide-react';
 
 interface OrderItemRef {
@@ -65,7 +66,25 @@ export default function PaymentModal({
 }: PaymentModalProps) {
 
   const supabase = createClient();
+  const { features } = useFeatures();
   const ivaRate = subtotal && subtotal > 0 ? (iva ?? 0) / subtotal : 0.16;
+
+  // ── Load loyalty config from DB ───────────────────────────────────────────
+  const [loyaltyConfig, setLoyaltyConfig] = React.useState({ pesosPerPoint: 10, pointValue: 0.50, minRedeem: 50, maxRedeemPct: 30 });
+  React.useEffect(() => {
+    if (!features.lealtad) return;
+    supabase.from('system_config').select('config_key, config_value').like('config_key', 'loyalty_%')
+      .then(({ data }) => {
+        const m: Record<string, string> = {};
+        (data || []).forEach((r: any) => { m[r.config_key] = r.config_value; });
+        setLoyaltyConfig({
+          pesosPerPoint: m['loyalty_pesos_per_point'] ? Number(m['loyalty_pesos_per_point']) : 10,
+          pointValue:    m['loyalty_point_value']     ? Number(m['loyalty_point_value'])     : 0.50,
+          minRedeem:     m['loyalty_min_redeem']      ? Number(m['loyalty_min_redeem'])      : 50,
+          maxRedeemPct:  m['loyalty_max_redeem_pct']  ? Number(m['loyalty_max_redeem_pct'])  : 30,
+        });
+      });
+  }, [features.lealtad]);
 
   // ── Loyalty customer search ──
   const [loyaltySearch, setLoyaltySearch] = useState('');
@@ -90,11 +109,12 @@ export default function PaymentModal({
     }, 300);
   }, [loyaltySearch]);
 
-  const POINTS_VALUE = 0.50;
+  const POINTS_VALUE = loyaltyConfig.pointValue;
   const pointsToEarn = selectedCustomer ? Math.floor(total / 10) : 0;
   const [redeemPoints, setRedeemPoints] = useState(false);
+  const maxRedeemPoints = Math.floor(total * loyaltyConfig.maxRedeemPct / 100 / POINTS_VALUE);
   const maxRedeemablePoints = selectedCustomer
-    ? Math.min(selectedCustomer.points, Math.floor(total / POINTS_VALUE))
+    ? Math.min(selectedCustomer.points, maxRedeemPoints)
     : 0;
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const pointsDiscount = redeemPoints ? pointsToRedeem * POINTS_VALUE : 0;
@@ -352,6 +372,7 @@ export default function PaymentModal({
           </div>
 
           {/* ── LEALTAD ── */}
+          {features.lealtad && (
           <div className="rounded-xl border overflow-hidden" style={{ borderColor: selectedCustomer ? '#fde68a' : '#e5e7eb', backgroundColor: selectedCustomer ? '#fffdf5' : 'white' }}>
             <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid', borderColor: selectedCustomer ? '#fde68a' : '#f3f4f6' }}>
               <Star size={14} style={{ color: '#d97706' }} />
@@ -381,7 +402,7 @@ export default function PaymentModal({
                   <UserCheck size={16} style={{ color: '#10b981' }} />
                 </div>
 
-                {selectedCustomer.points > 0 && (
+                {selectedCustomer.points >= loyaltyConfig.minRedeem && (
                   <div className="rounded-lg border overflow-hidden" style={{ borderColor: redeemPoints ? '#fde68a' : '#e5e7eb' }}>
                     <button
                       onClick={() => { setRedeemPoints(r => !r); setPointsToRedeem(0); }}
@@ -519,6 +540,7 @@ export default function PaymentModal({
             )}
           </div>
 
+          )}
           {/* Mode selector */}
           <div className="flex gap-2">
             {[

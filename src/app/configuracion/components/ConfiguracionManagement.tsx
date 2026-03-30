@@ -262,6 +262,9 @@ export default function ConfiguracionManagement() {
         setFeatures(loadedFeatures);
 
         // Load loyalty config
+        if (map['business_hours']) {
+          try { setHours(JSON.parse(map['business_hours'])); } catch {}
+        }
         if (map['loyalty_program_name'])    setLoyaltyName(map['loyalty_program_name']);
         if (map['loyalty_pesos_per_point']) setLoyaltyPesosPerPoint(Number(map['loyalty_pesos_per_point']));
         if (map['loyalty_point_value'])     setLoyaltyPointValue(Number(map['loyalty_point_value']));
@@ -372,7 +375,11 @@ export default function ConfiguracionManagement() {
   }
 
   // ── Save hours ───────────────────────────────────────────────────────────────
-  function handleSaveHours() {
+  async function handleSaveHours() {
+    await supabase.from('system_config').upsert(
+      { config_key: 'business_hours', config_value: JSON.stringify(hours), description: 'Horarios de apertura del restaurante' },
+      { onConflict: 'config_key' }
+    );
     setHoursSaved(true);
     setTimeout(() => setHoursSaved(false), 2500);
   }
