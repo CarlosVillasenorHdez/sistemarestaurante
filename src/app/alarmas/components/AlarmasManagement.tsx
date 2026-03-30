@@ -295,7 +295,7 @@ export default function AlarmasManagement() {
       {/* Alerts List */}
       <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         {loading ? (
-          <div className="divide-y" style={{ divideColor: '#f9fafb' }}>
+          <div className="divide-y" style={{}}>
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-start gap-4 px-6 py-4 animate-pulse">
                 <div className="w-10 h-10 rounded-xl bg-gray-100 flex-shrink-0" />

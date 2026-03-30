@@ -19,6 +19,7 @@ interface NavItem {
   href: string;
   badge?: number;
   pageKey: string;
+  feature?: keyof Features;
 }
 
 // ─── All nav items ────────────────────────────────────────────────────────────

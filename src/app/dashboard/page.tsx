@@ -12,7 +12,6 @@ export default function DashboardPage() {
     <AppLayout
       title="Dashboard"
       subtitle="Resumen operativo del día"
-      lastUpdated="hace 2 min"
     >
       <div className="flex flex-col gap-6">
         {/* Quick actions */}

@@ -5,7 +5,7 @@ import InventarioManagement from './components/InventarioManagement';
 
 export default function InventarioPage() {
   return (
-    <AppLayout>
+    <AppLayout title="Inventario" subtitle="Control de ingredientes y stock">
       <InventarioManagement />
     </AppLayout>
   );

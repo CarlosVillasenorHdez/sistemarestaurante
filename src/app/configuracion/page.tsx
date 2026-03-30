@@ -5,7 +5,7 @@ import ConfiguracionManagement from './components/ConfiguracionManagement';
 
 export default function ConfiguracionPage() {
   return (
-    <AppLayout>
+    <AppLayout title="Configuración" subtitle="Ajustes del restaurante">
       <ConfiguracionManagement />
     </AppLayout>
   );
