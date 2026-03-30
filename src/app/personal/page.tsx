@@ -5,7 +5,7 @@ import PersonalManagement from './components/PersonalManagement';
 
 export default function PersonalPage() {
   return (
-    <AppLayout>
+    <AppLayout title="Personal" subtitle="Empleados y turnos">
       <PersonalManagement />
     </AppLayout>
   );
