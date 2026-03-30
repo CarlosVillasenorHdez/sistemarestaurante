@@ -7,6 +7,7 @@ import UsuariosManagement from './UsuariosManagement';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePrinter } from '@/hooks/usePrinter';
+import { DEFAULT_FEATURES, FEATURE_KEYS, Features, invalidateFeaturesCache } from '@/hooks/useFeatures';
 import Icon from '@/components/ui/AppIcon';
 
 
@@ -180,6 +181,26 @@ export default function ConfiguracionManagement() {
 
   // Clear tables confirmation
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // Feature flags
+  const [features, setFeatures] = useState<Features>({ ...DEFAULT_FEATURES });
+  const [featuresSaving, setFeaturesSaving] = useState(false);
+  const [featuresSaved, setFeaturesSaved] = useState(false);
+
+  // Loyalty config
+  const [loyaltyName, setLoyaltyName] = useState('');
+  const [loyaltyPesosPerPoint, setLoyaltyPesosPerPoint] = useState(100);
+  const [loyaltyPointValue, setLoyaltyPointValue] = useState(1);
+  const [loyaltyExpiryDays, setLoyaltyExpiryDays] = useState(0);
+  const [loyaltyMinRedeem, setLoyaltyMinRedeem] = useState(0);
+  const [loyaltyMaxRedeemPct, setLoyaltyMaxRedeemPct] = useState(100);
+  const [loyaltyLevels, setLoyaltyLevels] = useState<{ name: string; min: number; color: string; benefit: string }[]>([
+    { name: 'Bronce', min: 0, color: '#cd7f32', benefit: '' },
+    { name: 'Plata', min: 500, color: '#9ca3af', benefit: '' },
+    { name: 'Oro', min: 1500, color: '#f59e0b', benefit: '' },
+  ]);
+  const [loyaltySaving, setLoyaltySaving] = useState(false);
+  const [loyaltySaved, setLoyaltySaved] = useState(false);
 
   // ── Load printer config ──────────────────────────────────────────────────────
   const loadPrinterConfig = useCallback(async () => {
@@ -568,8 +589,8 @@ export default function ConfiguracionManagement() {
       y: 0,
       w: 1,
       h: 1,
-      shape: newTableShape,
-      capacity: newTableCapacity,
+      shape: 'rect',
+      capacity: 4,
     };
     setLayoutTables((prev) => [...prev, newTable]);
     setShowAddForm(false);
@@ -912,9 +933,9 @@ export default function ConfiguracionManagement() {
                           <div>
                             <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Capacidad (personas)</label>
                             <div className="flex items-center gap-2">
-                              <button onClick={() => setNewTableCapacity((p) => Math.max(1, p - 1))} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
+                              <button onClick={() => setNewTableCapacity((p) => Math.max(1, p - 1))} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
                               <input type="number" min={1} max={20} value={newTableCapacity} onChange={(e) => setNewTableCapacity(Math.max(1, parseInt(e.target.value) || 1))} className="w-14 text-center px-2 py-1.5 rounded-lg text-xs outline-none" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }} />
-                              <button onClick={() => setNewTableCapacity((p) => Math.min(20, p + 1))} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
+                              <button onClick={() => setNewTableCapacity((p) => Math.min(20, p + 1))} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
                             </div>
                           </div>
                           <div>
@@ -1015,9 +1036,9 @@ export default function ConfiguracionManagement() {
                             <div>
                               <label className="block text-xs font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.6)' }}>Capacidad (personas)</label>
                               <div className="flex items-center gap-2">
-                                <button onClick={() => updateLayoutTable(t.id, { capacity: Math.max(1, t.capacity - 1) })} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
+                                <button onClick={() => updateLayoutTable(t.id, { capacity: Math.max(1, t.capacity - 1) })} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>−</button>
                                 <input type="number" min={1} max={20} value={t.capacity} onChange={(e) => updateLayoutTable(t.id, { capacity: parseInt(e.target.value) || 1 })} className="w-14 text-center px-2 py-1.5 rounded-lg text-xs outline-none" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }} />
-                                <button onClick={() => updateLayoutTable(t.id, { capacity: Math.min(20, t.capacity + 1) })} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
+                                <button onClick={() => updateLayoutTable(t.id, { capacity: Math.min(20, t.capacity + 1) })} className="w-7 h-7 rounded-lg flex items-center justify-center font-bold" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f59e0b' }}>+</button>
                               </div>
                             </div>
                             <div>
@@ -1448,32 +1469,15 @@ export default function ConfiguracionManagement() {
                           }}
                           disabled={printer.status === 'connecting'}
                           className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
-                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                          {printer.status === 'connecting'
-                            ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(245,158,11,0.3)', borderTopColor: '#f59e0b' }} />
+                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
+                          title={printerDraft.connectionType === 'usb' && printer.status !== 'connected' ? 'Conecta la impresora primero' : ''}>
+                          {(testingPrinter || printer.status === 'printing')
+                            ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
                             : <Usb size={15} />}
-                          {printer.status === 'connecting' ? 'Conectando...' : 'Conectar impresora'}
+                          {testingPrinter || printer.status === 'printing' ?'Imprimiendo...' :'Ticket de prueba'}
                         </button>
                       )
                     )}
-
-                    {/* Botón imprimir ticket de prueba */}
-                    <button onClick={handleTestPrinter}
-                      disabled={
-                        testingPrinter ||
-                        printer.status === 'printing' ||
-                        (printerDraft.connectionType === 'usb' && printer.status !== 'connected')
-                      }
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
-                      style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid #2a3f5f' }}
-                      title={printerDraft.connectionType === 'usb' && printer.status !== 'connected' ? 'Conecta la impresora primero' : ''}>
-                      {(testingPrinter || printer.status === 'printing')
-                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
-                        : <Printer size={15} />}
-                      {testingPrinter || printer.status === 'printing'
-                        ? 'Imprimiendo...'
-                        : 'Ticket de prueba'}
-                    </button>
 
                     <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
                   </div>
