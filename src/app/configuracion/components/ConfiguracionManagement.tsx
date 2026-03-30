@@ -1490,7 +1490,7 @@ export default function ConfiguracionManagement() {
           {activeSection === 'funcionalidades' && (
             <div className="max-w-2xl space-y-4">
               <SectionTitle
-                icon={<Zap size={18} style={{ color: '#f59e0b' }} />}
+                icon={Zap}
                 title="Funcionalidades del Sistema"
                 subtitle="Activa o desactiva módulos. Los módulos desactivados desaparecen del menú lateral inmediatamente al guardar."
               />
@@ -1544,7 +1544,7 @@ export default function ConfiguracionManagement() {
           {activeSection === 'lealtad_config' && (
             <div className="max-w-2xl space-y-5">
               <SectionTitle
-                icon={<Star size={18} style={{ color: '#f59e0b' }} />}
+                icon={Star}
                 title="Configuración del Programa de Lealtad"
                 subtitle="Define cómo se acumulan y canjean los puntos, y los niveles de tus clientes."
               />
@@ -1776,11 +1776,14 @@ export default function ConfiguracionManagement() {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionTitle({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
+function SectionTitle({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
   return (
-    <div className="flex items-center gap-2 mb-5">
-      <Icon size={18} style={{ color: '#f59e0b' }} />
-      <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>{title}</h2>
+    <div className="mb-5">
+      <div className="flex items-center gap-2">
+        <Icon size={18} style={{ color: '#f59e0b' }} />
+        <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>{title}</h2>
+      </div>
+      {subtitle && <p className="text-sm mt-1" style={{ color: 'rgba(255,255,255,0.45)' }}>{subtitle}</p>}
     </div>
   );
 }
