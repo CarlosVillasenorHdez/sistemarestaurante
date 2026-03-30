@@ -230,6 +230,24 @@ export default function ConfiguracionManagement() {
       if (data) {
         const map: Record<string, string> = {};
         data.forEach((r: any) => { map[r.config_key] = r.config_value; });
+
+        // Load feature flags
+        const loadedFeatures = { ...DEFAULT_FEATURES };
+        Object.entries(FEATURE_KEYS).forEach(([feat, key]) => {
+          if (key in map) loadedFeatures[feat as keyof Features] = map[key] === 'true';
+        });
+        setFeatures(loadedFeatures);
+
+        // Load loyalty config
+        if (map['loyalty_program_name'])    setLoyaltyName(map['loyalty_program_name']);
+        if (map['loyalty_pesos_per_point']) setLoyaltyPesosPerPoint(Number(map['loyalty_pesos_per_point']));
+        if (map['loyalty_point_value'])     setLoyaltyPointValue(Number(map['loyalty_point_value']));
+        if (map['loyalty_expiry_days'])     setLoyaltyExpiryDays(Number(map['loyalty_expiry_days']));
+        if (map['loyalty_min_redeem'])      setLoyaltyMinRedeem(Number(map['loyalty_min_redeem']));
+        if (map['loyalty_max_redeem_pct'])  setLoyaltyMaxRedeemPct(Number(map['loyalty_max_redeem_pct']));
+        if (map['loyalty_levels']) {
+          try { setLoyaltyLevels(JSON.parse(map['loyalty_levels'])); } catch {}
+        }
         if (map.iva_percent) {
           const iva = parseFloat(map.iva_percent);
           setIvaPercent(iva); setIvaPercentDraft(iva);
@@ -619,6 +637,38 @@ export default function ConfiguracionManagement() {
   }
 
   // ─── Render ──────────────────────────────────────────────────────────────────
+
+  // ── Save feature flags ────────────────────────────────────────────────────
+  const handleSaveFeatures = async () => {
+    setFeaturesSaving(true);
+    const rows = Object.entries(FEATURE_KEYS).map(([feat, key]) => ({
+      config_key: key,
+      config_value: features[feat as keyof Features] ? 'true' : 'false',
+      description: `Feature: ${feat}`,
+    }));
+    await supabase.from('system_config').upsert(rows, { onConflict: 'config_key' });
+    invalidateFeaturesCache();
+    setFeaturesSaving(false);
+    setFeaturesSaved(true);
+    setTimeout(() => setFeaturesSaved(false), 3000);
+  };
+
+  // ── Save loyalty config ───────────────────────────────────────────────────
+  const handleSaveLoyalty = async () => {
+    setLoyaltySaving(true);
+    await supabase.from('system_config').upsert([
+      { config_key: 'loyalty_program_name',    config_value: loyaltyName },
+      { config_key: 'loyalty_pesos_per_point', config_value: String(loyaltyPesosPerPoint) },
+      { config_key: 'loyalty_point_value',     config_value: String(loyaltyPointValue) },
+      { config_key: 'loyalty_expiry_days',     config_value: String(loyaltyExpiryDays) },
+      { config_key: 'loyalty_min_redeem',      config_value: String(loyaltyMinRedeem) },
+      { config_key: 'loyalty_max_redeem_pct',  config_value: String(loyaltyMaxRedeemPct) },
+      { config_key: 'loyalty_levels',          config_value: JSON.stringify(loyaltyLevels) },
+    ], { onConflict: 'config_key' });
+    setLoyaltySaving(false);
+    setLoyaltySaved(true);
+    setTimeout(() => setLoyaltySaved(false), 3000);
+  };
 
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: '#0f1923', minHeight: '100vh' }}>
@@ -1427,6 +1477,204 @@ export default function ConfiguracionManagement() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+                    {/* ── FUNCIONALIDADES ──────────────────────────────────────────────── */}
+          {activeSection === 'funcionalidades' && (
+            <div className="max-w-2xl space-y-4">
+              <SectionTitle
+                icon={<Zap size={18} style={{ color: '#f59e0b' }} />}
+                title="Funcionalidades del Sistema"
+                subtitle="Activa o desactiva módulos. Los módulos desactivados desaparecen del menú lateral inmediatamente al guardar."
+              />
+              {([
+                { key: 'meseroMovil',     label: 'Mesero Móvil',          desc: 'App para tomar pedidos desde el teléfono del mesero',    icon: '📱' },
+                { key: 'lealtad',         label: 'Programa de Lealtad',    desc: 'Puntos, niveles y canjes para clientes frecuentes',      icon: '⭐' },
+                { key: 'reservaciones',   label: 'Reservaciones',          desc: 'Calendario de reservas y gestión de mesas futuras',      icon: '📅' },
+                { key: 'delivery',        label: 'Delivery',               desc: 'Pedidos Uber Eats, Rappi, DiDi Food y captura manual',   icon: '🛵' },
+                { key: 'inventario',      label: 'Inventario',             desc: 'Stock, alertas de mínimos y movimientos de ingredientes', icon: '📦' },
+                { key: 'gastos',          label: 'Gastos',                 desc: 'Gastos recurrentes, depreciaciones y flujo de caja',     icon: '💸' },
+                { key: 'recursosHumanos', label: 'Recursos Humanos',       desc: 'Vacaciones, permisos, incapacidades y tiempos extra',    icon: '👥' },
+                { key: 'reportes',        label: 'Reportes y Análisis',    desc: 'P&L, COGS, canasta de mercado y consolidado sucursales', icon: '📊' },
+                { key: 'alarmas',         label: 'Alarmas',                desc: 'Panel de alertas de inventario, órdenes y sistema',      icon: '🔔' },
+                { key: 'multiSucursal',   label: 'Multi-Sucursal',         desc: 'Gestión centralizada de varias sucursales',              icon: '🏢' },
+              ] as { key: keyof Features; label: string; desc: string; icon: string }[]).map(({ key, label, desc, icon }) => (
+                <div key={key} className="flex items-center justify-between p-4 rounded-xl border transition-colors"
+                  style={{ borderColor: features[key] ? '#fde68a' : '#e5e7eb', backgroundColor: features[key] ? '#fffdf5' : 'white' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl w-8 text-center">{icon}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setFeatures(prev => ({ ...prev, [key]: !prev[key] }))}
+                    className="flex-shrink-0 w-12 h-6 rounded-full flex items-center px-1 transition-all duration-200"
+                    style={{ backgroundColor: features[key] ? '#f59e0b' : '#d1d5db' }}
+                  >
+                    <div className="w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200"
+                      style={{ transform: features[key] ? 'translateX(24px)' : 'translateX(0)' }} />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center gap-3 pt-2">
+                <button onClick={handleSaveFeatures} disabled={featuresSaving}
+                  className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 transition-opacity"
+                  style={{ backgroundColor: '#1B3A6B' }}>
+                  {featuresSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+                {featuresSaved && (
+                  <span className="text-sm font-semibold text-green-600 flex items-center gap-1">
+                    ✓ Guardado — recarga la página para ver el menú actualizado
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── LEALTAD CONFIG ────────────────────────────────────────────────── */}
+          {activeSection === 'lealtad_config' && (
+            <div className="max-w-2xl space-y-5">
+              <SectionTitle
+                icon={<Star size={18} style={{ color: '#f59e0b' }} />}
+                title="Configuración del Programa de Lealtad"
+                subtitle="Define cómo se acumulan y canjean los puntos, y los niveles de tus clientes."
+              />
+
+              {/* Program name */}
+              <div className="bg-white rounded-xl border p-5" style={{ borderColor: '#e5e7eb' }}>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre del programa</label>
+                <input type="text" value={loyaltyName} onChange={e => setLoyaltyName(e.target.value)}
+                  className="w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  style={{ borderColor: '#e5e7eb' }} placeholder="Ej: Club VIP, Programa de Puntos..." />
+                <p className="text-xs text-gray-400 mt-1.5">Aparece en el módulo de Lealtad y al cobrar.</p>
+              </div>
+
+              {/* Points economy */}
+              <div className="bg-white rounded-xl border p-5 space-y-4" style={{ borderColor: '#e5e7eb' }}>
+                <h3 className="text-sm font-semibold text-gray-700">Economía de puntos</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Pesos gastados para ganar 1 punto</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                      <input type="number" min={1} value={loyaltyPesosPerPoint}
+                        onChange={e => setLoyaltyPesosPerPoint(Number(e.target.value))}
+                        className="w-full pl-7 pr-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        style={{ borderColor: '#e5e7eb' }} />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Ej: $10 → por cada $10 gastados, el cliente gana 1 punto.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Valor de 1 punto al canjear</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+                      <input type="number" min={0.01} step={0.01} value={loyaltyPointValue}
+                        onChange={e => setLoyaltyPointValue(Number(e.target.value))}
+                        className="w-full pl-7 pr-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        style={{ borderColor: '#e5e7eb' }} />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Ej: $0.50 → 100 puntos = $50 de descuento.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Mínimo de puntos para canjear</label>
+                    <input type="number" min={0} value={loyaltyMinRedeem}
+                      onChange={e => setLoyaltyMinRedeem(Number(e.target.value))}
+                      className="w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      style={{ borderColor: '#e5e7eb' }} />
+                    <p className="text-xs text-gray-400 mt-1">0 = sin mínimo requerido.</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Máx. del total pagable con puntos (%)</label>
+                    <div className="relative">
+                      <input type="number" min={1} max={100} value={loyaltyMaxRedeemPct}
+                        onChange={e => setLoyaltyMaxRedeemPct(Number(e.target.value))}
+                        className="w-full pr-8 px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        style={{ borderColor: '#e5e7eb' }} />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">%</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Ej: 30% → no puede cubrir más del 30% de la cuenta.</p>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Expiración de puntos (días · 0 = nunca expiran)</label>
+                    <input type="number" min={0} value={loyaltyExpiryDays}
+                      onChange={e => setLoyaltyExpiryDays(Number(e.target.value))}
+                      className="w-full px-3 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      style={{ borderColor: '#e5e7eb' }} />
+                  </div>
+                </div>
+                {/* Live preview */}
+                <div className="rounded-xl p-4" style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+                  <p className="text-xs font-semibold text-amber-800 mb-1.5">Vista previa</p>
+                  <p className="text-xs text-amber-700">
+                    Un cliente que gasta <strong>$500</strong> acumula{' '}
+                    <strong>{Math.floor(500 / loyaltyPesosPerPoint)} puntos</strong>.
+                    Si los canjea, obtiene{' '}
+                    <strong>${(Math.floor(500 / loyaltyPesosPerPoint) * loyaltyPointValue).toFixed(2)}</strong> de descuento.
+                  </p>
+                </div>
+              </div>
+
+              {/* Levels */}
+              <div className="bg-white rounded-xl border p-5" style={{ borderColor: '#e5e7eb' }}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700">Niveles de cliente</h3>
+                  <button
+                    onClick={() => setLoyaltyLevels(prev => [...prev, { name: 'Nuevo nivel', min: 0, color: '#6b7280', benefit: '' }])}
+                    className="text-xs px-3 py-1.5 rounded-lg font-semibold"
+                    style={{ backgroundColor: '#eff6ff', color: '#2563eb' }}>
+                    + Agregar nivel
+                  </button>
+                </div>
+                <div className="space-y-2 mb-4">
+                  {loyaltyLevels.map((level, idx) => (
+                    <div key={idx} className="flex items-center gap-2 p-3 rounded-xl border" style={{ borderColor: '#f3f4f6' }}>
+                      <input type="color" value={level.color}
+                        onChange={e => setLoyaltyLevels(prev => prev.map((l, i) => i === idx ? { ...l, color: e.target.value } : l))}
+                        className="w-8 h-8 rounded-lg border-0 cursor-pointer" title="Color del nivel" />
+                      <div className="flex-1 grid grid-cols-3 gap-2">
+                        <input type="text" value={level.name} placeholder="Nombre"
+                          onChange={e => setLoyaltyLevels(prev => prev.map((l, i) => i === idx ? { ...l, name: e.target.value } : l))}
+                          className="px-2 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
+                          style={{ borderColor: '#e5e7eb' }} />
+                        <input type="number" min={0} value={level.min} placeholder="Pts mínimos"
+                          onChange={e => setLoyaltyLevels(prev => prev.map((l, i) => i === idx ? { ...l, min: Number(e.target.value) } : l))}
+                          className="px-2 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
+                          style={{ borderColor: '#e5e7eb' }} />
+                        <input type="text" value={level.benefit} placeholder="Beneficio"
+                          onChange={e => setLoyaltyLevels(prev => prev.map((l, i) => i === idx ? { ...l, benefit: e.target.value } : l))}
+                          className="px-2 py-1.5 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"
+                          style={{ borderColor: '#e5e7eb' }} />
+                      </div>
+                      {loyaltyLevels.length > 1 && (
+                        <button onClick={() => setLoyaltyLevels(prev => prev.filter((_, i) => i !== idx))}
+                          className="text-red-400 hover:text-red-600 font-bold w-5 text-sm flex-shrink-0">✕</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {/* Level preview badges */}
+                <div className="flex gap-2 flex-wrap pt-3 border-t" style={{ borderColor: '#f3f4f6' }}>
+                  {[...loyaltyLevels].sort((a, b) => a.min - b.min).map((l, i) => (
+                    <div key={i} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white"
+                      style={{ backgroundColor: l.color }}>
+                      {l.name} · {l.min}+ pts
+                      {l.benefit ? ` · ${l.benefit}` : ''}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button onClick={handleSaveLoyalty} disabled={loyaltySaving}
+                  className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: '#1B3A6B' }}>
+                  {loyaltySaving ? 'Guardando...' : 'Guardar configuración'}
+                </button>
+                {loyaltySaved && <span className="text-sm font-semibold text-green-600">✓ Configuración guardada</span>}
+              </div>
             </div>
           )}
 
