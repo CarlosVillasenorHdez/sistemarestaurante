@@ -220,8 +220,31 @@ export default function POSClient() {
 
   const [restaurantName, setRestaurantName] = useState('');
   const [printerConfigData, setPrinterConfigData] = useState<any>(null);
+  const [businessHours, setBusinessHours] = useState<{day:string;open:boolean;from:string;to:string}[]>([]);
+  const [outsideHours, setOutsideHours] = useState(false);
 
   useEffect(() => {
+    // Cargar horarios de apertura desde system_config
+    supabase.from('system_config').select('config_value').eq('config_key', 'business_hours').single()
+      .then(({ data }) => {
+        if (data?.config_value) {
+          try {
+            const hrs = JSON.parse(data.config_value);
+            setBusinessHours(hrs);
+            const now = new Date();
+            const days = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+            const dayKey = days[now.getDay()];
+            const todayHours = hrs.find((h: any) => h.day === dayKey);
+            if (todayHours && todayHours.open) {
+              const timeStr = now.toTimeString().slice(0, 5);
+              if (timeStr < todayHours.from || timeStr > todayHours.to) setOutsideHours(true);
+            } else if (todayHours && !todayHours.open) {
+              setOutsideHours(true);
+            }
+          } catch {}
+        }
+      });
+
     // Cargar nombre de sucursal desde system_config
     supabase.from('system_config')
       .select('config_key, config_value')

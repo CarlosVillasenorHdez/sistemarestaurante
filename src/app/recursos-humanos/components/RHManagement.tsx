@@ -187,6 +187,24 @@ export default function RHManagement() {
 
   // ─── CRUD helpers ────────────────────────────────────────────────────────────
 
+  const [attendanceSummary, setAttendanceSummary] = React.useState<Record<string, number>>({});
+
+  React.useEffect(() => {
+    if (activeTab !== 'resumen') return;
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    createClient().from('employee_attendance')
+      .select('employee_id, hours_worked')
+      .gte('date', startOfMonth)
+      .then(({ data }) => {
+        const summary: Record<string, number> = {};
+        (data || []).forEach((r: any) => {
+          if (r.hours_worked) summary[r.employee_id] = (summary[r.employee_id] || 0) + Number(r.hours_worked);
+        });
+        setAttendanceSummary(summary);
+      });
+  }, [activeTab]);
+
   async function updateEstado(table: string, id: string, estado: Estado) {
     const { error } = await supabase.from(table).update({ estado, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) { setError('Error al actualizar estado: ' + error.message); return; }
@@ -286,7 +304,8 @@ export default function RHManagement() {
     const salarioBase = toMonthlySalary(emp.salary, emp.salary_frequency);
     const salarioNeto = salarioBase - descuentoPermisos + bonusTE;
 
-    return { emp, diasVac, horasPermSinGoce, horasTE, descuentoPermisos, bonusTE, salarioBase, salarioNeto };
+    const horasEsteMes = attendanceSummary[emp.id] ?? null;
+    return { emp, diasVac, horasPermSinGoce, horasTE, descuentoPermisos, bonusTE, salarioBase, salarioNeto, horasEsteMes };
   });
 
   const tabs: { key: ActiveTab; label: string; icon: React.ElementType }[] = [
@@ -680,19 +699,20 @@ export default function RHManagement() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr style={{ backgroundColor: '#162236' }}>
-                        {['Empleado', 'Puesto', 'Salario Base', 'Días Vac.', 'Hrs Perm. S/G', 'Descuento', 'Bonus TE', 'Salario Neto Est.'].map((h) => (
+                        {['Empleado', 'Puesto', 'Salario Base', 'Hrs Mes', 'Días Vac.', 'Hrs Perm. S/G', 'Descuento', 'Bonus TE', 'Salario Neto Est.'].map((h) => (
                           <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {resumen.length === 0 ? (
-                        <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">No hay empleados activos</td></tr>
-                      ) : resumen.map(({ emp, diasVac, horasPermSinGoce, horasTE, descuentoPermisos, bonusTE, salarioBase, salarioNeto }) => (
+                        <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No hay empleados activos</td></tr>
+                      ) : resumen.map(({ emp, diasVac, horasPermSinGoce, horasTE, descuentoPermisos, bonusTE, salarioBase, salarioNeto, horasEsteMes }) => (
                         <tr key={emp.id} className="border-t hover:bg-white/5 transition-colors" style={{ borderColor: '#243f72' }}>
                           <td className="px-4 py-3 text-white font-medium">{emp.name}</td>
                           <td className="px-4 py-3 text-gray-400 text-xs">{emp.role}</td>
                           <td className="px-4 py-3 text-gray-300">${salarioBase.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3" style={{ color: horasEsteMes !== null ? (horasEsteMes >= 40 ? '#34d399' : '#fbbf24') : '#6b7280' }}>{horasEsteMes !== null ? `${horasEsteMes}h` : '—'}</td>
                           <td className="px-4 py-3 text-blue-300">{diasVac > 0 ? diasVac : '—'}</td>
                           <td className="px-4 py-3 text-orange-300">{horasPermSinGoce > 0 ? `${horasPermSinGoce}h` : '—'}</td>
                           <td className="px-4 py-3 text-red-400">{descuentoPermisos > 0 ? `-$${descuentoPermisos.toFixed(2)}` : '—'}</td>

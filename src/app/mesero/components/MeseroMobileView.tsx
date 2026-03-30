@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search, MessageSquare, CreditCard } from 'lucide-react';
 import PaymentModal from '@/app/pos-punto-de-venta/components/PaymentModal';
 import { useOrderFlow, type OrderFlowItem } from '@/hooks/useOrderFlow';
+import { useFeatures } from '@/hooks/useFeatures';
 import type { DbTable, DbDish } from '@/lib/supabase/types';
 
 interface Table {
@@ -25,6 +26,7 @@ export default function MeseroMobileView() {
   const supabase = createClient();
   const { } = useAuth();
   const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen, closeOrder } = useOrderFlow();
+  const { features } = useFeatures();
 
   const [tables, setTables] = useState<Table[]>([]);
   const [dishes, setDishes] = useState<DbDish[]>([]);

@@ -249,6 +249,31 @@ export default function InventarioManagement() {
     if (activeTab === 'equivalencias') fetchEquivalences();
   }, [activeTab, historyIngredientId, fetchMovements, fetchEquivalences]);
   const lowStockItems = useMemo(() => ingredients.filter((i) => i.stock < i.minStock), [ingredients]);
+
+  // ── Export purchase order CSV ─────────────────────────────────────────────
+  const handleExportPurchaseOrder = () => {
+    const items = [...lowStockItems, ...reorderItems.filter(r => !lowStockItems.find(l => l.id === r.id))];
+    if (items.length === 0) { toast.info('No hay ingredientes que requieran compra'); return; }
+    const now = new Date().toLocaleDateString('es-MX');
+    const headers = ['Ingrediente', 'Stock Actual', 'Stock Mínimo', 'Unidad', 'Cantidad a Pedir', 'Proveedor', 'Teléfono', 'URL'];
+    const rows = items.map(ing => [
+      ing.name,
+      ing.stock,
+      ing.minStock,
+      ing.unit,
+      Math.max(0, ing.minStock * 2 - ing.stock), // suggest 2x min
+      ing.supplier || '',
+      ing.supplierPhone || '',
+      ing.supplierUrl || '',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `lista-compras-${now}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`Lista de compras exportada (${items.length} ingredientes)`);
+  };
   const reorderItems = useMemo(() => ingredients.filter((i) => i.stock < i.reorderPoint && i.stock >= i.minStock), [ingredients]);
   const filtered = useMemo(() => {
     return ingredients.filter((ing) => {
@@ -676,6 +701,14 @@ export default function InventarioManagement() {
               <AlertTriangle size={16} className="text-red-400" />
               <h2 className="text-sm font-bold text-white">Stock Crítico</h2>
               <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#f87171' }}>{lowStockItems.length}</span>
+            </div>
+            <div className="flex justify-end mb-2">
+              <button onClick={handleExportPurchaseOrder}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}>
+                <Download size={13} />
+                Exportar lista de compras
+              </button>
             </div>
             {lowStockItems.length === 0 ? (
               <div className="rounded-xl p-4 text-sm" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)' }}>
