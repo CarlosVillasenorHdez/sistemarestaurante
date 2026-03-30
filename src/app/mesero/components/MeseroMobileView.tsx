@@ -16,6 +16,7 @@ interface Table {
   capacity: number;
   status: string;
   currentOrderId?: string;
+  waiter?: string;
 }
 
 const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas', 'Extras'];
@@ -39,6 +40,7 @@ export default function MeseroMobileView() {
   const [readyOrders, setReadyOrders] = useState<string[]>([]);
   const prevReadyRef = React.useRef<string[]>([]);
   const [branchName, setBranchName] = useState('Sucursal Principal');
+  const [myName, setMyName] = useState('Mesero');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -54,6 +56,13 @@ export default function MeseroMobileView() {
       .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
   }, [supabase]);
 
+  // TODO: replace with real auth user name when login is implemented
+  // For now reads from localStorage so different devices can simulate different waiters
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem('aldente_waiter_name') : null;
+    if (saved) setMyName(saved);
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -64,6 +73,7 @@ export default function MeseroMobileView() {
       setTables((tablesData || []).map((t: DbTable) => ({
         id: t.id, number: t.number, name: t.name, capacity: t.capacity,
         status: t.status, currentOrderId: t.current_order_id ?? undefined,
+        waiter: (t as any).waiter ?? undefined,
       })));
       setDishes((dishesData || []) as DbDish[]);
     } catch (err: any) {
@@ -248,7 +258,7 @@ export default function MeseroMobileView() {
     toast.success('Nota enviada a cocina');
   };
 
-  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
+  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number, loyaltyCustomerId?: string | null) => {
     if (!selectedTable || !currentOrderId) return;
     const ok = await closeOrder({
       orderId: currentOrderId,
@@ -259,9 +269,10 @@ export default function MeseroMobileView() {
       iva,
       total,
       payMethod: method,
-      waiterName: 'Mesero',
+      waiterName: myName,
       branchName,
       openedAt: null,
+      loyaltyCustomerId: loyaltyCustomerId ?? null,
     });
     if (!ok) return;
     setShowPayment(false);
@@ -278,7 +289,7 @@ export default function MeseroMobileView() {
     if (!selectedTable || orderItems.length === 0) return;
     setSending(true);
     try {
-      const waiter = 'Administrador';
+      const waiter = myName;
       const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
       const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
 
@@ -339,32 +350,70 @@ export default function MeseroMobileView() {
       {view === 'tables' && (
         <div className="space-y-4">
           <p className="text-sm text-gray-500">Selecciona una mesa para tomar el pedido</p>
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-            {tables.map(table => (
+          {/* Waiter name badge */}
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-sm text-gray-500">Selecciona una mesa para tomar el pedido</p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                style={{ backgroundColor: '#1B3A6B', color: '#f59e0b' }}>
+                👤 {myName}
+              </span>
               <button
-                key={table.id}
-                onClick={() => selectTable(table)}
-                className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-1 border-2 transition-all active:scale-95 ${
-                  table.status === 'libre' ? 'border-green-200 bg-green-50 hover:bg-green-100'
-                    : table.status === 'ocupada'? 'border-red-200 bg-red-50 hover:bg-red-100' :'border-amber-200 bg-amber-50 hover:bg-amber-100'
-                }`}
+                onClick={() => {
+                  const name = window.prompt('¿Cómo te llamas?', myName);
+                  if (name?.trim()) { setMyName(name.trim()); localStorage.setItem('aldente_waiter_name', name.trim()); }
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
               >
-                <span className="text-2xl">🪑</span>
-                <span className="text-xs font-bold text-gray-800">{table.name}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                  table.status === 'libre' ? 'bg-green-100 text-green-700' :
-                  table.status === 'ocupada' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {table.status === 'libre' ? 'Libre' : table.status === 'ocupada' ? 'Ocupada' : 'Espera'}
-                </span>
-                {readyOrders.includes(table.name) && (
-                  <span className="text-xs px-1.5 py-0.5 rounded-full font-bold animate-pulse"
-                    style={{ backgroundColor: '#bbf7d0', color: '#15803d' }}>
-                    ✓ Lista
-                  </span>
-                )}
+                cambiar
               </button>
-            ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            {tables.map(table => {
+              const isMyTable = table.status === 'ocupada' && table.waiter === myName;
+              const isOtherTable = table.status === 'ocupada' && table.waiter && table.waiter !== myName;
+              const isLibre = table.status === 'libre';
+              const isReady = readyOrders.includes(table.name);
+
+              let borderClass = '';
+              let bgStyle: React.CSSProperties = {};
+              if (isLibre) { borderClass = 'border-green-200'; bgStyle = { backgroundColor: '#f0fdf4' }; }
+              else if (isMyTable) { borderClass = 'border-amber-300'; bgStyle = { backgroundColor: '#fffbeb' }; }
+              else if (isOtherTable) { borderClass = 'border-gray-200'; bgStyle = { backgroundColor: '#f9fafb', opacity: 0.6 }; }
+              else { borderClass = 'border-amber-200'; bgStyle = { backgroundColor: '#fffbeb' }; }
+
+              const handleTableClick = () => {
+                if (isOtherTable) {
+                  toast.error(`Mesa de ${table.waiter} — no puedes modificarla`);
+                  return;
+                }
+                selectTable(table);
+              };
+
+              return (
+                <button
+                  key={table.id}
+                  onClick={handleTableClick}
+                  className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-1 border-2 transition-all active:scale-95 ${borderClass} ${isOtherTable ? 'cursor-not-allowed' : 'hover:brightness-95'}`}
+                  style={bgStyle}
+                >
+                  <span className="text-2xl">{isOtherTable ? '🔒' : isMyTable ? '🪑' : '🪑'}</span>
+                  <span className="text-xs font-bold text-gray-800">{table.name}</span>
+                  {isLibre && <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-green-100 text-green-700">Libre</span>}
+                  {isMyTable && <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">Mi mesa</span>}
+                  {isOtherTable && <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-gray-100 text-gray-500">{table.waiter?.split(' ')[0]}</span>}
+                  {!isLibre && !isMyTable && !isOtherTable && <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-amber-100 text-amber-700">Espera</span>}
+                  {isReady && isMyTable && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full font-bold animate-pulse"
+                      style={{ backgroundColor: '#bbf7d0', color: '#15803d' }}>
+                      ✓ Lista
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -625,7 +674,7 @@ export default function MeseroMobileView() {
             notes: i.notes,
           }))}
           mesa={selectedTable.name}
-          mesero="Mesero"
+          mesero={myName}
           onClose={() => setShowPayment(false)}
           onComplete={handlePaymentComplete}
         />

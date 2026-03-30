@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { usePrinter } from '@/hooks/usePrinter';
-import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft, Star, Search, UserCheck, XCircle } from 'lucide-react';
 
 interface OrderItemRef {
   id: string;           // menuItem.id
@@ -32,7 +33,7 @@ interface PaymentModalProps {
     showDiscount?: boolean; showUnitPrice?: boolean;
   };
   onClose: () => void;
-  onComplete: (method: 'efectivo' | 'tarjeta', amountPaid: number) => void;
+  onComplete: (method: 'efectivo' | 'tarjeta', amountPaid: number, loyaltyCustomerId?: string | null) => void;
 }
 
 // ─── Sub-types ────────────────────────────────────────────────────────────────
@@ -63,7 +64,34 @@ export default function PaymentModal({
   restaurantName, branchName, printerConfig,
 }: PaymentModalProps) {
 
+  const supabase = createClient();
   const ivaRate = subtotal && subtotal > 0 ? (iva ?? 0) / subtotal : 0.16;
+
+  // ── Loyalty customer search ──
+  const [loyaltySearch, setLoyaltySearch] = useState('');
+  const [loyaltyResults, setLoyaltyResults] = useState<{ id: string; name: string; phone: string; points: number }[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string; phone: string; points: number } | null>(null);
+  const [loyaltySearching, setLoyaltySearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (loyaltySearch.trim().length < 2) { setLoyaltyResults([]); return; }
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(async () => {
+      setLoyaltySearching(true);
+      const { data } = await supabase
+        .from('loyalty_customers')
+        .select('id, name, phone, points')
+        .or(`name.ilike.%${loyaltySearch}%,phone.ilike.%${loyaltySearch}%`)
+        .eq('is_active', true)
+        .limit(5);
+      setLoyaltyResults(data || []);
+      setLoyaltySearching(false);
+    }, 300);
+  }, [loyaltySearch]);
+
+  const POINTS_VALUE = 0.50;
+  const pointsToEarn = selectedCustomer ? Math.floor((total) / 10) : 0;
 
 
   // Modes: 'single' | 'split_amount' | 'split_items'
@@ -141,7 +169,7 @@ export default function PaymentModal({
 
   // Computed
   const cashAmount = parseFloat(cashInput) || 0;
-  const change = method === 'efectivo' ? cashAmount - total : 0;
+  const change = method === 'efectivo' ? cashAmount - effectiveTotal : 0;
 
   const splitAmountTotal = amountParts.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0);
   const splitAmountRemaining = total - splitAmountTotal;
@@ -176,14 +204,20 @@ export default function PaymentModal({
     [personTotals]
   );
 
+  const [redeemPoints, setRedeemPoints] = useState(false);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const maxRedeemablePoints = selectedCustomer ? Math.min(selectedCustomer.points, Math.floor(total / POINTS_VALUE)) : 0;
+  const pointsDiscount = pointsToRedeem * POINTS_VALUE;
+  const effectiveTotal = Math.max(0, total - pointsDiscount);
+
   // ── Handlers ──
 
   const handleConfirmSingle = async () => {
-    if (method === 'efectivo' && cashAmount < total) return;
+    if (method === 'efectivo' && cashAmount < effectiveTotal) return;
     setLoading(true);
     await new Promise(r => setTimeout(r, 500));
     setLoading(false);
-    onComplete(method, method === 'efectivo' ? cashAmount : total);
+    onComplete(method, method === 'efectivo' ? cashAmount : total, selectedCustomer?.id ?? null);
   };
 
   const handleConfirmSplitAmount = async () => {
@@ -191,14 +225,14 @@ export default function PaymentModal({
     setLoading(true);
     await new Promise(r => setTimeout(r, 500));
     setLoading(false);
-    onComplete(amountParts[0].method, total);
+    onComplete(amountParts[0].method, total, selectedCustomer?.id ?? null);
   };
 
   const handleConfirmSplitItems = async () => {
     setLoading(true);
     await new Promise(r => setTimeout(r, 500));
     setLoading(false);
-    onComplete('efectivo', total);
+    onComplete('efectivo', total, selectedCustomer?.id ?? null);
   };
 
   // Assign / remove qty from active person
@@ -288,7 +322,122 @@ export default function PaymentModal({
           {/* Total */}
           <div className="rounded-xl p-4 text-center" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Total a cobrar</p>
-            <p className="font-mono font-bold text-3xl" style={{ color: '#1B3A6B' }}>${total.toFixed(2)}</p>
+            {redeemPoints && pointsToRedeem > 0 ? (
+              <>
+                <p className="font-mono text-lg line-through text-gray-400">${total.toFixed(2)}</p>
+                <p className="font-mono font-bold text-3xl" style={{ color: '#15803d' }}>${effectiveTotal.toFixed(2)}</p>
+                <p className="text-xs font-semibold text-green-600 mt-0.5">− ${pointsDiscount.toFixed(2)} en puntos canjeados</p>
+              </>
+            ) : (
+              <p className="font-mono font-bold text-3xl" style={{ color: '#1B3A6B' }}>${total.toFixed(2)}</p>
+            )}
+          </div>
+
+          {/* ── LEALTAD ── */}
+          <div className="rounded-xl border overflow-hidden" style={{ borderColor: selectedCustomer ? '#fde68a' : '#e5e7eb', backgroundColor: selectedCustomer ? '#fffdf5' : 'white' }}>
+            <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid', borderColor: selectedCustomer ? '#fde68a' : '#f3f4f6' }}>
+              <Star size={14} style={{ color: '#d97706' }} />
+              <span className="text-xs font-semibold text-amber-800">Programa de Lealtad</span>
+              {selectedCustomer && (
+                <button onClick={() => { setSelectedCustomer(null); setLoyaltySearch(''); setLoyaltyResults([]); }}
+                  className="ml-auto text-gray-400 hover:text-gray-600">
+                  <XCircle size={14} />
+                </button>
+              )}
+            </div>
+
+            {selectedCustomer ? (
+              <div className="px-3 pb-3 space-y-2.5">
+                <div className="flex items-center gap-3 pt-2">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                    style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+                    {selectedCustomer.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{selectedCustomer.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {selectedCustomer.points} pts disponibles
+                      {!redeemPoints && pointsToEarn > 0 && <span className="text-green-600"> · +{pointsToEarn} pts esta compra</span>}
+                    </p>
+                  </div>
+                  <UserCheck size={16} style={{ color: '#10b981' }} />
+                </div>
+
+                {selectedCustomer.points > 0 && (
+                  <div className="rounded-lg border overflow-hidden" style={{ borderColor: redeemPoints ? '#fde68a' : '#e5e7eb' }}>
+                    <button
+                      onClick={() => { setRedeemPoints(r => !r); setPointsToRedeem(0); }}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold transition-colors"
+                      style={{ backgroundColor: redeemPoints ? '#fffbeb' : '#f9fafb' }}
+                    >
+                      <span style={{ color: redeemPoints ? '#92400e' : '#6b7280' }}>🎁 Canjear puntos como descuento</span>
+                      <div className="w-9 h-5 rounded-full flex items-center px-0.5 transition-all"
+                        style={{ backgroundColor: redeemPoints ? '#f59e0b' : '#d1d5db' }}>
+                        <div className="w-4 h-4 rounded-full bg-white shadow transition-transform"
+                          style={{ transform: redeemPoints ? 'translateX(16px)' : 'translateX(0)' }} />
+                      </div>
+                    </button>
+
+                    {redeemPoints && (
+                      <div className="px-3 pb-3 pt-2 space-y-2" style={{ backgroundColor: '#fffbeb' }}>
+                        <div className="flex items-center justify-between text-xs text-amber-700">
+                          <span>Puntos a canjear: <strong>{pointsToRedeem}</strong></span>
+                          <span>Descuento: <strong className="text-green-700">${pointsDiscount.toFixed(2)}</strong></span>
+                        </div>
+                        <input
+                          type="range" min={0} max={maxRedeemablePoints} value={pointsToRedeem}
+                          onChange={e => setPointsToRedeem(Number(e.target.value))}
+                          className="w-full accent-amber-500"
+                        />
+                        <div className="flex justify-between text-xs text-amber-600">
+                          <span>0 pts</span>
+                          <span>{maxRedeemablePoints} pts máx (${(maxRedeemablePoints * POINTS_VALUE).toFixed(2)})</span>
+                        </div>
+                        {pointsToRedeem > 0 && (
+                          <div className="flex items-center justify-between px-2 py-1.5 rounded-lg text-xs font-semibold"
+                            style={{ backgroundColor: '#dcfce7', color: '#15803d' }}>
+                            <span>Total con descuento</span>
+                            <span className="font-mono">${effectiveTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="px-3 py-2.5">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text" value={loyaltySearch} onChange={e => setLoyaltySearch(e.target.value)}
+                    placeholder="Buscar cliente por nombre o teléfono…"
+                    className="w-full pl-8 pr-3 py-2 text-xs rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-300"
+                    style={{ borderColor: '#e5e7eb' }}
+                  />
+                  {loyaltySearching && (
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 animate-spin"
+                      style={{ borderColor: 'rgba(0,0,0,0.1)', borderTopColor: '#f59e0b' }} />
+                  )}
+                </div>
+                {loyaltyResults.length > 0 && (
+                  <div className="mt-1.5 rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb' }}>
+                    {loyaltyResults.map(c => (
+                      <button key={c.id}
+                        onClick={() => { setSelectedCustomer(c); setLoyaltySearch(''); setLoyaltyResults([]); }}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-amber-50 transition-colors"
+                        style={{ borderBottom: '1px solid #f3f4f6' }}>
+                        <span className="font-medium text-gray-800">{c.name}</span>
+                        <span className="text-gray-400">{c.phone} · <span className="text-amber-600 font-semibold">{c.points} pts</span></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {loyaltySearch.trim().length >= 2 && !loyaltySearching && loyaltyResults.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-1.5 text-center">Sin resultados.</p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Mode selector */}
@@ -344,9 +493,9 @@ export default function PaymentModal({
               {method === 'efectivo' && (
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1.5">Efectivo recibido</label>
-                  <input type="number" placeholder={`Mínimo $${total.toFixed(2)}`}
+                  <input type="number" placeholder={`Mínimo ${effectiveTotal.toFixed(2)}`}
                     value={cashInput} onChange={e => setCashInput(e.target.value)}
-                    className="input-field text-lg font-mono font-bold text-center py-3" min={total} />
+                    className="input-field text-lg font-mono font-bold text-center py-3" min={effectiveTotal} />
                   <div className="flex gap-2 mt-2">
                     {quickAmounts.map(amt => (
                       <button key={amt} onClick={() => setCashInput(String(amt))}
@@ -356,17 +505,17 @@ export default function PaymentModal({
                       </button>
                     ))}
                   </div>
-                  {cashAmount >= total && (
+                  {cashAmount >= effectiveTotal && (
                     <div className="mt-3 px-4 py-3 rounded-xl flex items-center justify-between"
                       style={{ backgroundColor: '#f0fdf4', border: '1px solid #86efac' }}>
                       <span className="text-sm font-semibold text-green-700">Cambio</span>
                       <span className="font-mono font-bold text-green-700 text-lg">${change.toFixed(2)}</span>
                     </div>
                   )}
-                  {cashInput && cashAmount < total && (
+                  {cashInput && cashAmount < effectiveTotal && (
                     <div className="mt-3 px-4 py-2.5 rounded-xl"
                       style={{ backgroundColor: '#fef2f2', border: '1px solid #fca5a5' }}>
-                      <span className="text-xs text-red-600">Faltan ${(total - cashAmount).toFixed(2)}</span>
+                      <span className="text-xs text-red-600">Faltan ${(effectiveTotal - cashAmount).toFixed(2)}</span>
                     </div>
                   )}
                 </div>
@@ -408,7 +557,7 @@ export default function PaymentModal({
                   {splitAmountRemaining === 0 ? '✓ Total cubierto' : splitAmountRemaining > 0 ? `Falta $${splitAmountRemaining.toFixed(2)}` : `Excede $${Math.abs(splitAmountRemaining).toFixed(2)}`}
                 </span>
                 <span className="font-mono text-xs font-bold" style={{ color: '#1B3A6B' }}>
-                  ${splitAmountTotal.toFixed(2)} / ${total.toFixed(2)}
+                  ${splitAmountTotal.toFixed(2)} / ${effectiveTotal.toFixed(2)}
                 </span>
               </div>
             </div>
@@ -628,7 +777,7 @@ export default function PaymentModal({
 
           {mode === 'single' && (
             <button onClick={handleConfirmSingle}
-              disabled={loading || (method === 'efectivo' && cashAmount < total)}
+              disabled={loading || (method === 'efectivo' && cashAmount < effectiveTotal)}
               className="btn-primary flex items-center gap-2 disabled:opacity-50">
               {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={16} />}
               {loading ? 'Procesando...' : 'Confirmar pago'}

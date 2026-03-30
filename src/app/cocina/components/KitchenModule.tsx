@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
 import { createClient } from '@/lib/supabase/client';
@@ -14,11 +14,12 @@ type KitchenStatus = 'pendiente' | 'preparacion' | 'lista' | 'entregada';
 type RealtimeStatus = 'conectado' | 'reconectando' | 'desconectado';
 
 interface KitchenOrderItem {
-  id: string;    // order_item id for per-item marking
+  id: string;
   name: string;
   qty: number;
   emoji: string;
   notes?: string;
+  category?: string;
 }
 
 interface KitchenOrder {
@@ -263,6 +264,7 @@ export default function KitchenModule() {
   // Drag state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<KitchenStatus | null>(null);
+  const [stationFilter, setStationFilter] = useState<string>('Todas');
   const prevCountRef = useRef(0);
   const tick = useElapsedTick();
   const supabase = createClient();
@@ -288,7 +290,7 @@ export default function KitchenModule() {
   const fetchOrders = useCallback(async () => {
     const { data, error } = await supabase
       .from('orders')
-      .select('*, order_items(*)')
+      .select('*, order_items(*, dishes(category))')
       .in('status', ['abierta', 'preparacion', 'lista'])
       .neq('kitchen_status', 'en_edicion')
       .order('created_at', { ascending: true });
@@ -300,10 +302,12 @@ export default function KitchenModule() {
         mesa: o.mesa,
         mesero: o.mesero,
         items: (o.order_items || []).map((item: any) => ({
+          id: item.id,
           name: item.name,
           qty: item.qty,
           emoji: item.emoji || '🍽️',
           notes: item.notes,
+          category: item.dishes?.category ?? null,
         })),
         kitchenStatus: (o.kitchen_status ?? 'pendiente') as KitchenStatus,
         kitchenNotes: o.kitchen_notes || null,
@@ -470,10 +474,23 @@ export default function KitchenModule() {
     toast.success(`Orden de ${mesa} cancelada`);
   };
 
-  const columnOrders = (col: KitchenStatus) => orders.filter((o) => o.kitchenStatus === col);
-  const totalPending = orders.filter((o) => o.kitchenStatus === 'pendiente').length;
-  const totalPrep   = orders.filter((o) => o.kitchenStatus === 'preparacion').length;
-  const totalReady  = orders.filter((o) => o.kitchenStatus === 'lista').length;
+  const allCategories = React.useMemo(() => {
+    const cats = new Set<string>();
+    orders.forEach(o => o.items.forEach(i => { if (i.category) cats.add(i.category); }));
+    return ['Todas', ...Array.from(cats).sort()];
+  }, [orders]);
+
+  const filteredOrders = React.useMemo(() => {
+    if (stationFilter === 'Todas') return orders;
+    return orders
+      .map(o => ({ ...o, items: o.items.filter(i => i.category === stationFilter || !i.category) }))
+      .filter(o => o.items.length > 0);
+  }, [orders, stationFilter]);
+
+  const columnOrders = (col: KitchenStatus) => filteredOrders.filter((o) => o.kitchenStatus === col);
+  const totalPending = filteredOrders.filter((o) => o.kitchenStatus === 'pendiente').length;
+  const totalPrep   = filteredOrders.filter((o) => o.kitchenStatus === 'preparacion').length;
+  const totalReady  = filteredOrders.filter((o) => o.kitchenStatus === 'lista').length;
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#0f1923' }}>
@@ -522,6 +539,29 @@ export default function KitchenModule() {
             </button>
           </div>
         </div>
+
+        {/* Station filter bar */}
+        {allCategories.length > 2 && (
+          <div className="flex-shrink-0 px-6 py-2 border-b flex items-center gap-2 overflow-x-auto"
+            style={{ borderColor: '#1e2d3d', backgroundColor: '#0a1218' }}>
+            <span className="text-xs font-semibold flex-shrink-0" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              Estación:
+            </span>
+            {allCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setStationFilter(cat)}
+                className="flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-all"
+                style={{
+                  backgroundColor: stationFilter === cat ? '#f59e0b' : 'rgba(255,255,255,0.07)',
+                  color: stationFilter === cat ? '#1B3A6B' : 'rgba(255,255,255,0.5)',
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Kanban board */}
         <div className="flex-1 overflow-hidden p-5">

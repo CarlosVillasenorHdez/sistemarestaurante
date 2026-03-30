@@ -54,6 +54,7 @@ export interface CloseOrderParams {
   waiterName: string;
   branchName: string;
   openedAt: string | null;
+  loyaltyCustomerId?: string | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -192,7 +193,7 @@ export function useOrderFlow() {
 
   const closeOrder = useCallback(async (params: CloseOrderParams): Promise<boolean> => {
     const { orderId, tableIds, items, subtotal, discountAmount, iva, total,
-            payMethod, openedAt, branchName, waiterName } = params;
+            payMethod, openedAt, branchName, waiterName, loyaltyCustomerId } = params;
     const now = new Date().toISOString();
 
     try {
@@ -206,6 +207,7 @@ export function useOrderFlow() {
         updated_at: now,
         branch: branchName,
         mesero: waiterName,
+        ...(loyaltyCustomerId ? { loyalty_customer_id: loyaltyCustomerId } : {}),
       }).eq('id', orderId);
 
       if (orderErr) throw orderErr;

@@ -632,7 +632,7 @@ export default function POSClient() {
     toast.success('Nota enviada a cocina');
   };
 
-  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
+  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number, loyaltyCustomerId?: string | null) => {
     if (!selectedTable) return;
 
     const groupIds = selectedTable.mergeGroupId
@@ -657,6 +657,7 @@ export default function POSClient() {
       waiterName: selectedTable.waiter || 'Administrador',
       branchName,
       openedAt: selectedTable.openedAt ?? null,
+      loyaltyCustomerId: loyaltyCustomerId ?? null,
     });
 
     if (!ok) return;
