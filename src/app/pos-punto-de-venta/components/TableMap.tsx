@@ -235,7 +235,16 @@ export default function TableMap({
                 if (editMode) return; // don't select in edit mode
                 if (mergeMode) { onTableSelect(liveTable); return; }
                 if (isMerged) { onTableSelect(liveTable); return; }
-                if (liveTable.status === 'libre') onMarkOccupied(liveTable);
+                if (liveTable.status === 'libre') {
+                  // Warn if table has a reservation coming up
+                  if (reservedTables.includes(liveTable.id)) {
+                    const ok = window.confirm(
+                      `⚠️ ${liveTable.name} tiene una reservación próxima.\n\n¿Confirmas que deseas sentar a alguien en esta mesa?`
+                    );
+                    if (!ok) return;
+                  }
+                  onMarkOccupied(liveTable);
+                }
                 else onTableSelect(liveTable);
               };
 
@@ -427,7 +436,15 @@ export default function TableMap({
           const handleClick = () => {
             if (mergeMode) { onTableSelect(table); return; }
             if (isMerged) { onTableSelect(table); return; }
-            if (table.status === 'libre') onMarkOccupied(table);
+            if (table.status === 'libre') {
+              if (reservedTables.includes(table.id)) {
+                const ok = window.confirm(
+                  `⚠️ ${table.name} tiene una reservación próxima.\n\n¿Confirmas que deseas sentar a alguien en esta mesa?`
+                );
+                if (!ok) return;
+              }
+              onMarkOccupied(table);
+            }
             else onTableSelect(table);
           };
 

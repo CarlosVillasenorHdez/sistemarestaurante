@@ -5,12 +5,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell,
 } from 'recharts';
-import {
-  Building2, Calendar, TrendingUp, TrendingDown, DollarSign,
-  ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award,
-  ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check,
-} from 'lucide-react';
+import { Building2, Calendar, TrendingUp, DollarSign, ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check,  } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import Icon from '@/components/ui/AppIcon';
+
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +196,22 @@ export default function ReportesConsolidado() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
+  // ── Date range label (client-only to avoid hydration mismatch) ─────────────
+  const [dateRangeLabel, setDateRangeLabel] = useState('');
+  useEffect(() => {
+    const now = new Date();
+    if (dateRange === 'hoy') {
+      setDateRangeLabel(now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+    } else if (dateRange === 'semana') {
+      const s = new Date(now); s.setDate(now.getDate() - 6);
+      setDateRangeLabel(`Semana del ${s.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${now.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`);
+    } else if (dateRange === 'mes') {
+      setDateRangeLabel(now.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' }));
+    } else {
+      setDateRangeLabel(`${customStart} — ${customEnd}`);
+    }
+  }, [dateRange, customStart, customEnd]);
+
   // ── Load branches ──────────────────────────────────────────────────────────
   useEffect(() => {
     supabase
@@ -253,7 +267,7 @@ export default function ReportesConsolidado() {
           hourBuckets[label] = { ventas: 0, ordenes: 0 };
         }
         orderList.forEach(o => {
-          const h = new Date(o.created_at).getHours();
+          let h = new Date(o.created_at).getHours();
           if (h >= 8 && h <= 23) {
             const label = `${String(h).padStart(2, '0')}:00`;
             hourBuckets[label].ventas += Number(o.total);
@@ -378,18 +392,6 @@ export default function ReportesConsolidado() {
   );
 
   const topVentas = ranking[0]?.metrics?.ventas ?? 1;
-
-  // ── Date range label ──────────────────────────────────────────────────────
-  const dateRangeLabel = useMemo(() => {
-    const now = new Date();
-    if (dateRange === 'hoy') return now.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    if (dateRange === 'semana') {
-      const s = new Date(now); s.setDate(now.getDate() - 6);
-      return `Semana del ${s.toLocaleDateString('es-MX', { day: 'numeric', month: 'long' })} al ${now.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-    }
-    if (dateRange === 'mes') return now.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
-    return `${customStart} — ${customEnd}`;
-  }, [dateRange, customStart, customEnd]);
 
   const handleExport = useCallback(() => {
     setExporting(true);

@@ -130,10 +130,14 @@ export default function DashboardKPIs() {
         startOfTodayMX.setHours(0, 0, 0, 0);
         const startOfYesterdayMX = new Date(startOfTodayMX);
         startOfYesterdayMX.setDate(startOfYesterdayMX.getDate() - 1);
+        // Yesterday up to the same hour as right now (apples-to-apples)
+        const sameHourYesterdayMX = new Date(startOfYesterdayMX);
+        sameHourYesterdayMX.setHours(nowMX.getHours(), nowMX.getMinutes(), nowMX.getSeconds());
 
         // Convert back to UTC ISO strings for Supabase queries
         const todayUTC = startOfTodayMX.toISOString();
         const yesterdayUTC = startOfYesterdayMX.toISOString();
+        const sameHourYesterdayUTC = sameHourYesterdayMX.toISOString();
 
         const [
           { data: cerradasHoy },
@@ -144,7 +148,7 @@ export default function DashboardKPIs() {
           { data: ingAlerta },
         ] = await Promise.all([
           supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', todayUTC),
-          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', yesterdayUTC).lt('created_at', todayUTC),
+          supabase.from('orders').select('total').eq('status', 'cerrada').gte('created_at', yesterdayUTC).lt('created_at', sameHourYesterdayUTC),
           supabase.from('orders').select('id').in('status', ['abierta', 'preparacion', 'lista']),
           supabase.from('restaurant_tables').select('status'),
           supabase.from('order_items').select('name, qty').gte('created_at', todayUTC),
@@ -209,7 +213,8 @@ export default function DashboardKPIs() {
         <KPICard
           title="Ventas del Día"
           value={`$${kpis.ventasHoy.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}
-          trendLabel={`vs. ayer ($${kpis.ventasAyer.toLocaleString('es-MX', { minimumFractionDigits: 0 })})`}
+          trend={kpis.ventasAyer > 0 ? ((kpis.ventasHoy - kpis.ventasAyer) / kpis.ventasAyer) * 100 : undefined}
+          trendLabel={`vs. ayer a esta hora ($${kpis.ventasAyer.toLocaleString('es-MX', { minimumFractionDigits: 0 })})`}
           icon={TrendingUp}
           color="amber"
           span="wide"

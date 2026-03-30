@@ -248,7 +248,7 @@ export default function MeseroMobileView() {
     toast.success('Nota enviada a cocina');
   };
 
-  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
+  const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number, loyaltyCustomerId?: string | null) => {
     if (!selectedTable || !currentOrderId) return;
     const ok = await closeOrder({
       orderId: currentOrderId,
@@ -262,6 +262,7 @@ export default function MeseroMobileView() {
       waiterName: 'Mesero',
       branchName,
       openedAt: null,
+      loyaltyCustomerId: loyaltyCustomerId ?? null,
     });
     if (!ok) return;
     setShowPayment(false);
