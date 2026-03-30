@@ -7,6 +7,7 @@ import AppLogo from '@/components/ui/AppLogo';
 import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
+import { useFeatures, type Features } from '@/hooks/useFeatures';
 import Icon from '@/components/ui/AppIcon';
 
 
@@ -28,40 +29,40 @@ const navGroups: { group: string; items: NavItem[] }[] = [
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard', pageKey: 'dashboard' },
       { label: 'Punto de Venta', icon: ShoppingCart, href: '/pos-punto-de-venta', pageKey: 'pos' },
-      { label: 'Mesero Móvil', icon: Smartphone, href: '/mesero', pageKey: 'mesero' },
+      { label: 'Mesero Móvil', icon: Smartphone, href: '/mesero', pageKey: 'mesero', feature: 'meseroMovil' as keyof Features },
       { label: 'Órdenes', icon: ClipboardList, href: '/orders-management', pageKey: 'orders' },
       { label: 'Cocina', icon: ChefHat, href: '/cocina', pageKey: 'cocina' },
-      { label: 'Delivery', icon: Truck, href: '/delivery', pageKey: 'delivery' },
+      { label: 'Delivery', icon: Truck, href: '/delivery', pageKey: 'delivery', feature: 'delivery' as keyof Features },
     ],
   },
   {
     group: 'GESTIÓN',
     items: [
       { label: 'Menú', icon: UtensilsCrossed, href: '/menu', pageKey: 'menu' },
-      { label: 'Inventario', icon: Package, href: '/inventario', pageKey: 'inventario' },
-      { label: 'Reservaciones', icon: Calendar, href: '/reservaciones', pageKey: 'reservaciones' },
-      { label: 'Lealtad', icon: Star, href: '/lealtad', pageKey: 'lealtad' },
+      { label: 'Inventario', icon: Package, href: '/inventario', pageKey: 'inventario', feature: 'inventario' as keyof Features },
+      { label: 'Reservaciones', icon: Calendar, href: '/reservaciones', pageKey: 'reservaciones', feature: 'reservaciones' as keyof Features },
+      { label: 'Lealtad', icon: Star, href: '/lealtad', pageKey: 'lealtad', feature: 'lealtad' as keyof Features },
     ],
   },
   {
     group: 'PERSONAS',
     items: [
       { label: 'Personal', icon: Users, href: '/personal', pageKey: 'personal' },
-      { label: 'Recursos Humanos', icon: UserCog, href: '/recursos-humanos', pageKey: 'recursos_humanos' },
-      { label: 'Gastos', icon: Receipt, href: '/gastos', pageKey: 'gastos' },
-      { label: 'Multi-Sucursal', icon: Building2, href: '/sucursales', pageKey: 'sucursales' },
+      { label: 'Recursos Humanos', icon: UserCog, href: '/recursos-humanos', pageKey: 'recursos_humanos', feature: 'recursosHumanos' as keyof Features },
+      { label: 'Gastos', icon: Receipt, href: '/gastos', pageKey: 'gastos', feature: 'gastos' as keyof Features },
+      { label: 'Multi-Sucursal', icon: Building2, href: '/sucursales', pageKey: 'sucursales', feature: 'multiSucursal' as keyof Features },
     ],
   },
   {
     group: 'ANÁLISIS',
     items: [
-      { label: 'Reportes', icon: BarChart3, href: '/reportes', pageKey: 'reportes' },
+      { label: 'Reportes', icon: BarChart3, href: '/reportes', pageKey: 'reportes', feature: 'reportes' as keyof Features },
     ],
   },
   {
     group: 'SISTEMA',
     items: [
-      { label: 'Alarmas', icon: BellRing, href: '/alarmas', pageKey: 'alarmas' },
+      { label: 'Alarmas', icon: BellRing, href: '/alarmas', pageKey: 'alarmas', feature: 'alarmas' as keyof Features },
       { label: 'Configuración', icon: Settings, href: '/configuracion', pageKey: 'configuracion' },
     ],
   },
@@ -76,6 +77,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { brandConfig } = useAuth();
   const supabase = createClient();
+  const { features } = useFeatures();
 
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
   const [branches, setBranches] = useState<{id: string; name: string}[]>([]);
@@ -202,6 +204,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             )}
             {group.items.map((item) => {
               const Icon = item.icon;
+              if ((item as any).feature && !features[(item as any).feature as keyof Features]) return null;
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               const badge = item.pageKey === 'orders'
                 ? (openOrdersCount > 0 ? openOrdersCount : undefined)
