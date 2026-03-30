@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, Cell,
 } from 'recharts';
-import { Building2, Calendar, TrendingUp, DollarSign, ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check,  } from 'lucide-react';
+import { Building2, Calendar, TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, ShoppingCart, Download, RefreshCw, Award, ArrowUpRight, ArrowDownRight, Minus, ChevronDown, Check, FileText } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import Icon from '@/components/ui/AppIcon';
 
@@ -30,6 +30,39 @@ interface BranchMetrics {
   hourlyData: { hora: string; ventas: number; ordenes: number }[];
   dailyData: { dia: string; ventas: number }[];
   dishData: { nombre: string; cantidad: number }[];
+}
+
+interface GlobalPL {
+  totalVentas: number;
+  totalCogs: number;
+  utilidadBruta: number;
+  nominaMensual: number;
+  gastosOp: { concepto: string; monto: number }[];
+  depreciacion: number;
+  gastosFinancieros: number;
+  totalGastosOp: number;
+  ebitda: number;
+  ebit: number;
+  uai: number;
+  isr: number;
+  utilidadNeta: number;
+  margenBruto: number;
+  margenNeto: number;
+}
+
+interface BranchPL {
+  branchId: string;
+  branchName: string;
+  color: string;
+  ventas: number;
+  cogs: number;
+  utilidadBruta: number;
+  margenBruto: number;
+  nomina: number;
+  gastosOp: number;
+  ebitda: number;
+  utilidadNeta: number;
+  margenNeto: number;
 }
 
 // ─── Color Palette for branches ─────────────────────────────────────────────
@@ -195,6 +228,10 @@ export default function ReportesConsolidado() {
   const [metricsMap, setMetricsMap] = useState<Record<string, BranchMetrics>>({});
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [globalPL, setGlobalPL] = useState<GlobalPL | null>(null);
+  const [branchPLs, setBranchPLs] = useState<BranchPL[]>([]);
+  const [plLoading, setPlLoading] = useState(true);
+  const [showPL, setShowPL] = useState(false);
 
   // ── Date range label (client-only to avoid hydration mismatch) ─────────────
   const [dateRangeLabel, setDateRangeLabel] = useState('');
@@ -339,6 +376,147 @@ export default function ReportesConsolidado() {
   useEffect(() => {
     fetchMetrics();
   }, [fetchMetrics]);
+
+  // ── Fetch P&L data (global + per branch) ──────────────────────────────────
+  const fetchPL = React.useCallback(async () => {
+    setPlLoading(true);
+    const { start, end } = getDateBounds(dateRange, customStart, customEnd);
+    const FREQ: Record<string, number> = {
+      diario: 1/30, semanal: 1/4.33, quincenal: 0.5,
+      mensual: 1, bimestral: 2, trimestral: 3, semestral: 6, anual: 12,
+    };
+
+    // ─ Global: all orders in period ─
+    const [
+      { data: allOrders },
+      { data: allEmployees },
+      { data: allGastos },
+      { data: allDeps },
+      { data: allRecipes },
+      { data: allItems },
+    ] = await Promise.all([
+      supabase.from('orders').select('id, total, branch_id').eq('status', 'cerrada').gte('created_at', start).lte('created_at', end).limit(5000),
+      supabase.from('employees').select('salary, salary_frequency, status, branch_id').eq('status', 'activo'),
+      supabase.from('gastos_recurrentes').select('monto, frecuencia, categoria, branch_id, activo').eq('activo', true),
+      supabase.from('depreciaciones').select('valor_original, valor_residual, vida_util_anios, activo, branch_id').eq('activo', true),
+      supabase.from('dish_recipes').select('dish_id, quantity, ingredients(cost), dishes(price)'),
+      supabase.from('order_items').select('dish_id, qty, order_id').limit(8000),
+    ]);
+
+    const orders = allOrders || [];
+    const totalVentas = orders.reduce((s, o) => s + Number(o.total), 0);
+
+    // COGS from recipes x units sold
+    const orderIds = new Set(orders.map(o => o.id));
+    const soldMap: Record<string, number> = {};
+    (allItems || []).filter(i => orderIds.has(i.order_id)).forEach((i: any) => {
+      if (i.dish_id) soldMap[i.dish_id] = (soldMap[i.dish_id] || 0) + Number(i.qty);
+    });
+    const dishCost: Record<string, number> = {};
+    (allRecipes || []).forEach((r: any) => {
+      dishCost[r.dish_id] = (dishCost[r.dish_id] || 0) + Number(r.ingredients?.cost || 0) * Number(r.quantity || 0);
+    });
+    const totalCogs = Object.entries(soldMap).reduce((s, [did, qty]) => s + (dishCost[did] || 0) * qty, 0);
+
+    // Payroll
+    const nominaMensual = (allEmployees || []).reduce((s, e: any) => {
+      const sal = Number(e.salary || 0);
+      const freq = e.salary_frequency || 'mensual';
+      return s + (freq === 'mensual' ? sal : freq === 'quincenal' ? sal * 2 : sal * 4.33);
+    }, 0);
+
+    // Gastos op
+    const gastosMap: Record<string, number> = {};
+    (allGastos || []).forEach((g: any) => {
+      const m = Number(g.monto) / (FREQ[g.frecuencia] ?? 1);
+      const cat = g.categoria || 'otro';
+      gastosMap[cat] = (gastosMap[cat] || 0) + m;
+    });
+    const gastosOpItems = Object.entries(gastosMap)
+      .filter(([cat]) => cat !== 'financiero')
+      .map(([cat, monto]) => ({ concepto: cat, monto: Math.round(monto) }));
+    const gastosFinancieros = gastosMap['financiero'] || 0;
+    const depreciacion = (allDeps || []).reduce((s, d: any) => {
+      const base = Number(d.valor_original) - Number(d.valor_residual);
+      return s + (base / (Number(d.vida_util_anios) || 1) / 12);
+    }, 0);
+    const totalGastosOp = nominaMensual + gastosOpItems.reduce((s, g) => s + g.monto, 0);
+    const utilidadBruta = totalVentas - totalCogs;
+    const ebitda = utilidadBruta - totalGastosOp;
+    const ebit = ebitda - depreciacion;
+    const uai = ebit - gastosFinancieros;
+    const isr = Math.round(Math.max(uai, 0) * 0.30);
+    const utilidadNeta = uai - isr;
+
+    setGlobalPL({
+      totalVentas: Math.round(totalVentas),
+      totalCogs: Math.round(totalCogs),
+      utilidadBruta: Math.round(utilidadBruta),
+      nominaMensual: Math.round(nominaMensual),
+      gastosOp: gastosOpItems,
+      depreciacion: Math.round(depreciacion),
+      gastosFinancieros: Math.round(gastosFinancieros),
+      totalGastosOp: Math.round(totalGastosOp),
+      ebitda: Math.round(ebitda),
+      ebit: Math.round(ebit),
+      uai: Math.round(uai),
+      isr,
+      utilidadNeta: Math.round(utilidadNeta),
+      margenBruto: totalVentas > 0 ? Math.round((utilidadBruta / totalVentas) * 1000) / 10 : 0,
+      margenNeto: totalVentas > 0 ? Math.round((utilidadNeta / totalVentas) * 1000) / 10 : 0,
+    });
+
+    // ─ Per branch P&L ─
+    const branchList = branches.filter(b =>
+      selectedBranches.length === 0 || selectedBranches.includes(b.id)
+    );
+
+    const bPLs: BranchPL[] = branchList.map((branch, idx) => {
+      const bOrders = orders.filter((o: any) => o.branch_id === branch.id);
+      const bVentas = bOrders.reduce((s, o) => s + Number(o.total), 0);
+      const bOrderIds = new Set(bOrders.map(o => o.id));
+      const bSold: Record<string, number> = {};
+      (allItems || []).filter(i => bOrderIds.has(i.order_id)).forEach((i: any) => {
+        if (i.dish_id) bSold[i.dish_id] = (bSold[i.dish_id] || 0) + Number(i.qty);
+      });
+      const bCogs = Object.entries(bSold).reduce((s, [did, qty]) => s + (dishCost[did] || 0) * qty, 0);
+      const bNomina = (allEmployees || [])
+        .filter((e: any) => !e.branch_id || e.branch_id === branch.id)
+        .reduce((s, e: any) => {
+          const sal = Number(e.salary || 0);
+          const freq = e.salary_frequency || 'mensual';
+          return s + (freq === 'mensual' ? sal : freq === 'quincenal' ? sal * 2 : sal * 4.33);
+        }, 0) / Math.max(branchList.length, 1);
+      const bGastos = (allGastos || [])
+        .filter((g: any) => !g.branch_id || g.branch_id === branch.id)
+        .reduce((s, g: any) => s + Number(g.monto) / (FREQ[g.frecuencia] ?? 1), 0) / Math.max(branchList.length, 1);
+      const bUtilidadBruta = bVentas - bCogs;
+      const bEbitda = bUtilidadBruta - bNomina - bGastos;
+      const bUtilNeta = bEbitda - (depreciacion / Math.max(branchList.length, 1));
+
+      return {
+        branchId: branch.id,
+        branchName: branch.name,
+        color: getBranchColor(idx),
+        ventas: Math.round(bVentas),
+        cogs: Math.round(bCogs),
+        utilidadBruta: Math.round(bUtilidadBruta),
+        margenBruto: bVentas > 0 ? Math.round((bUtilidadBruta / bVentas) * 1000) / 10 : 0,
+        nomina: Math.round(bNomina),
+        gastosOp: Math.round(bGastos),
+        ebitda: Math.round(bEbitda),
+        utilidadNeta: Math.round(bUtilNeta),
+        margenNeto: bVentas > 0 ? Math.round((bUtilNeta / bVentas) * 1000) / 10 : 0,
+      };
+    });
+
+    setBranchPLs(bPLs);
+    setPlLoading(false);
+  }, [branches, selectedBranches, dateRange, customStart, customEnd]);
+
+  useEffect(() => {
+    if (branches.length > 0) fetchPL();
+  }, [fetchPL]);
 
   // ── Derived aggregates ────────────────────────────────────────────────────
   const activeBranches = useMemo(() => {
@@ -869,6 +1047,208 @@ export default function ReportesConsolidado() {
             </table>
           </div>
         </div>
+
+
+        {/* ── Toggle P&L Button ── */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Estado de Resultados</span>
+            <div className="flex-1 h-px" style={{ backgroundColor: '#e5e7eb', minWidth: 40 }} />
+          </div>
+          <button
+            onClick={() => setShowPL(p => !p)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+            style={{ backgroundColor: showPL ? '#1B3A6B' : '#f3f4f6', color: showPL ? 'white' : '#374151' }}
+          >
+            <FileText size={14} />
+            {showPL ? 'Ocultar P&L' : 'Ver P&L Consolidado'}
+          </button>
+        </div>
+
+        {showPL && (
+          <div className="space-y-6">
+
+            {/* ── P&L GLOBAL ── */}
+            <div className="bg-white rounded-xl border p-5" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+              <div className="flex items-center gap-2 mb-5">
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#ecfdf5' }}>
+                  <DollarSign size={16} style={{ color: '#10b981' }} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">P&L Consolidado — Negocio Completo</h2>
+                  <p className="text-xs text-gray-500">Estado de resultados global de todas las sucursales · {dateRangeLabel}</p>
+                </div>
+              </div>
+
+              {plLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3,4,5].map(i => <div key={i} className="h-8 rounded-lg animate-pulse" style={{ backgroundColor: '#f3f4f6' }} />)}
+                </div>
+              ) : globalPL ? (
+                <>
+                  {/* KPI strip */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                    {[
+                      { label: 'Ingresos Totales', value: fmtMoney(globalPL.totalVentas), color: '#10b981', bg: '#ecfdf5' },
+                      { label: 'Utilidad Bruta', value: `${fmtMoney(globalPL.utilidadBruta)} (${globalPL.margenBruto}%)`, color: '#3b82f6', bg: '#eff6ff' },
+                      { label: 'EBITDA', value: fmtMoney(globalPL.ebitda), color: '#8b5cf6', bg: '#f5f3ff' },
+                      { label: 'Utilidad Neta', value: `${fmtMoney(globalPL.utilidadNeta)} (${globalPL.margenNeto}%)`, color: globalPL.utilidadNeta >= 0 ? '#10b981' : '#ef4444', bg: globalPL.utilidadNeta >= 0 ? '#ecfdf5' : '#fef2f2' },
+                    ].map(k => (
+                      <div key={k.label} className="rounded-xl p-3" style={{ backgroundColor: k.bg }}>
+                        <p className="text-xs font-semibold mb-1" style={{ color: k.color }}>{k.label}</p>
+                        <p className="text-sm font-bold text-gray-900">{k.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* P&L table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #f3f4f6' }}>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Concepto</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Monto (MXN)</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">% Ingresos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { label: 'INGRESOS', val: null, type: 'header' },
+                          { label: 'Ventas totales (todas las sucursales)', val: globalPL.totalVentas, type: 'ingreso' },
+                          { label: 'TOTAL INGRESOS', val: globalPL.totalVentas, type: 'total' },
+                          { label: 'COSTO DE VENTAS (COGS)', val: null, type: 'header' },
+                          { label: 'Costo de ingredientes (recetas)', val: globalPL.totalCogs, type: 'costo' },
+                          { label: 'TOTAL COGS', val: globalPL.totalCogs, type: 'total' },
+                          { label: 'UTILIDAD BRUTA', val: globalPL.utilidadBruta, type: 'subtotal' },
+                          { label: 'GASTOS OPERATIVOS', val: null, type: 'header' },
+                          { label: 'Nómina y Prestaciones', val: globalPL.nominaMensual, type: 'gasto' },
+                          ...globalPL.gastosOp.map(g => ({ label: g.concepto, val: g.monto, type: 'gasto' as const })),
+                          { label: 'TOTAL GASTOS OPERATIVOS', val: globalPL.totalGastosOp, type: 'total' },
+                          { label: 'EBITDA', val: globalPL.ebitda, type: 'subtotal' },
+                          { label: 'Depreciación y Amortización', val: globalPL.depreciacion, type: 'gasto' },
+                          { label: 'UTILIDAD OPERATIVA (EBIT)', val: globalPL.ebit, type: 'subtotal' },
+                          { label: 'Gastos Financieros', val: globalPL.gastosFinancieros, type: 'gasto' },
+                          { label: 'UTILIDAD ANTES DE IMPUESTOS', val: globalPL.uai, type: 'subtotal' },
+                          { label: 'ISR (30%)', val: globalPL.isr, type: 'costo' },
+                          { label: 'UTILIDAD NETA', val: globalPL.utilidadNeta, type: 'total' },
+                        ].map((row, i) => {
+                          if (row.type === 'header') return (
+                            <tr key={i} style={{ backgroundColor: '#f8fafc', borderTop: '2px solid #e5e7eb' }}>
+                              <td colSpan={3} className="py-2 px-3 text-xs font-bold text-gray-500 uppercase tracking-widest">{row.label}</td>
+                            </tr>
+                          );
+                          const pct = globalPL.totalVentas > 0 && row.val != null ? ((row.val / globalPL.totalVentas) * 100).toFixed(1) : '—';
+                          const isTotal = row.type === 'total' || row.type === 'subtotal';
+                          const isCost = row.type === 'costo' || row.type === 'gasto';
+                          const totalColor = row.label === 'UTILIDAD NETA' ? (globalPL.utilidadNeta >= 0 ? '#10b981' : '#ef4444')
+                            : row.label.includes('BRUTA') ? '#3b82f6'
+                            : row.label.includes('EBITDA') ? '#8b5cf6' : '#1B3A6B';
+                          return (
+                            <tr key={i} className={isTotal ? '' : 'border-b hover:bg-gray-50'} style={{
+                              borderColor: '#f3f4f6',
+                              backgroundColor: isTotal ? '#f0f9ff' : undefined,
+                            }}>
+                              <td className="py-2.5 px-3" style={{ paddingLeft: isTotal ? '12px' : '24px', fontWeight: isTotal ? 700 : 400, color: isTotal ? totalColor : '#374151' }}>
+                                {row.label}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono text-sm" style={{ color: isTotal ? totalColor : isCost ? '#ef4444' : '#374151', fontWeight: isTotal ? 700 : 400 }}>
+                                {row.val != null ? `${isCost && !isTotal ? '-' : ''}${fmtMoney(Math.abs(row.val ?? 0))}` : ''}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-xs font-mono text-gray-400">{row.val != null ? `${pct}%` : ''}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-8">Sin datos para el período seleccionado.</p>
+              )}
+            </div>
+
+            {/* ── P&L POR SUCURSAL ── */}
+            {branchPLs.length > 1 && (
+              <div className="bg-white rounded-xl border p-5" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                <div className="flex items-center gap-2 mb-5">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#eff6ff' }}>
+                    <Building2 size={16} style={{ color: '#3b82f6' }} />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-gray-900">P&L por Sucursal</h2>
+                    <p className="text-xs text-gray-500">Rentabilidad individual de cada unidad · {dateRangeLabel}</p>
+                  </div>
+                </div>
+
+                {plLoading ? (
+                  <div className="h-40 animate-pulse rounded-xl" style={{ backgroundColor: '#f3f4f6' }} />
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr style={{ borderBottom: '2px solid #f3f4f6' }}>
+                          {['Sucursal', 'Ventas', 'COGS', 'Ut. Bruta', 'Margen B.', 'Nómina+Gastos', 'EBITDA', 'Ut. Neta', 'Margen N.'].map(h => (
+                            <th key={h} className="text-left py-2 px-3 text-xs font-semibold text-gray-500 uppercase whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {branchPLs.map(b => (
+                          <tr key={b.branchId} className="border-b hover:bg-gray-50 transition-colors" style={{ borderColor: '#f3f4f6' }}>
+                            <td className="py-3 px-3">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: b.color }} />
+                                <span className="font-semibold text-gray-800">{b.branchName}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: b.color }}>{fmtMoney(b.ventas)}</td>
+                            <td className="py-3 px-3 font-mono text-red-500">{fmtMoney(b.cogs)}</td>
+                            <td className="py-3 px-3 font-mono text-blue-600">{fmtMoney(b.utilidadBruta)}</td>
+                            <td className="py-3 px-3">
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold"
+                                style={{ backgroundColor: b.margenBruto >= 60 ? '#ecfdf5' : b.margenBruto >= 40 ? '#fffbeb' : '#fef2f2', color: b.margenBruto >= 60 ? '#15803d' : b.margenBruto >= 40 ? '#92400e' : '#991b1b' }}>
+                                {b.margenBruto}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 font-mono text-gray-600">{fmtMoney(b.nomina + b.gastosOp)}</td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: b.ebitda >= 0 ? '#8b5cf6' : '#ef4444' }}>{fmtMoney(b.ebitda)}</td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: b.utilidadNeta >= 0 ? '#10b981' : '#ef4444' }}>{fmtMoney(b.utilidadNeta)}</td>
+                            <td className="py-3 px-3">
+                              <span className="flex items-center gap-1 text-xs font-bold" style={{ color: b.margenNeto >= 0 ? '#10b981' : '#ef4444' }}>
+                                {b.margenNeto >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                                {b.margenNeto}%
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {branchPLs.length > 0 && globalPL && (
+                        <tfoot>
+                          <tr style={{ borderTop: '2px solid #e5e7eb', backgroundColor: '#f8fafc' }}>
+                            <td className="py-3 px-3 font-bold text-gray-700 uppercase text-xs tracking-wide">TOTAL</td>
+                            <td className="py-3 px-3 font-mono font-bold text-gray-900">{fmtMoney(globalPL.totalVentas)}</td>
+                            <td className="py-3 px-3 font-mono font-bold text-red-500">{fmtMoney(globalPL.totalCogs)}</td>
+                            <td className="py-3 px-3 font-mono font-bold text-blue-600">{fmtMoney(globalPL.utilidadBruta)}</td>
+                            <td className="py-3 px-3 font-mono font-bold text-gray-700">{globalPL.margenBruto}%</td>
+                            <td className="py-3 px-3 font-mono font-bold text-gray-700">{fmtMoney(globalPL.nominaMensual + globalPL.gastosOp.reduce((s,g)=>s+g.monto,0))}</td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: globalPL.ebitda >= 0 ? '#8b5cf6' : '#ef4444' }}>{fmtMoney(globalPL.ebitda)}</td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: globalPL.utilidadNeta >= 0 ? '#10b981' : '#ef4444' }}>{fmtMoney(globalPL.utilidadNeta)}</td>
+                            <td className="py-3 px-3 font-mono font-bold" style={{ color: globalPL.margenNeto >= 0 ? '#10b981' : '#ef4444' }}>{globalPL.margenNeto}%</td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </div>
+                )}
+
+                <div className="mt-4 p-3 rounded-lg text-xs text-gray-600" style={{ backgroundColor: '#fffbeb', borderLeft: '3px solid #f59e0b' }}>
+                  <strong>📌 Nota:</strong> Los gastos operativos y nómina sin asignar a una sucursal específica se distribuyen proporcionalmente entre todas las sucursales. Para mayor precisión, asigna empleados y gastos a su sucursal en los módulos de Personal y Gastos.
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
 
       </div>{/* closes px-6 py-5 */}
 

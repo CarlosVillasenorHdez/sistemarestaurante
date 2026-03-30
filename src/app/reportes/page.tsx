@@ -4,24 +4,33 @@ import AppLayout from '@/components/AppLayout';
 import ReportesManagement from './components/ReportesManagement';
 import ReportesMejorados from './components/ReportesMejorados';
 import ReportesConsolidado from './components/ReportesConsolidado';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useFeatures } from '@/hooks/useFeatures';
 
 type View = 'avanzado' | 'completo' | 'consolidado';
 
 export default function ReportesPage() {
-  const [activeView, setActiveView] = useState<View>('consolidado');
+  const { features } = useFeatures();
+  const [activeView, setActiveView] = useState<View>('avanzado');
 
-  const tabs: { id: View; label: string }[] = [
-    { id: 'consolidado', label: '🏢 Consolidado Multi-Sucursal' },
-    { id: 'avanzado', label: '📊 Reportes en Tiempo Real' },
-    { id: 'completo', label: '📈 Análisis Completo' },
+  // Set default tab: consolidado only if multiSucursal is enabled
+  useEffect(() => {
+    setActiveView(features.multiSucursal ? 'consolidado' : 'avanzado');
+  }, [features.multiSucursal]);
+
+  const tabs: { id: View; label: string; show: boolean }[] = [
+    { id: 'consolidado', label: '🏢 Consolidado Multi-Sucursal', show: features.multiSucursal },
+    { id: 'avanzado',    label: '📊 Reportes en Tiempo Real',    show: true },
+    { id: 'completo',    label: '📈 Análisis Completo',          show: true },
   ];
+
+  const visibleTabs = tabs.filter(t => t.show);
 
   return (
     <AppLayout title="Reportes" subtitle="Análisis de ventas y rendimiento">
       <div className="space-y-4">
         <div className="flex gap-2 border-b border-gray-200 pb-0 overflow-x-auto">
-          {tabs.map(tab => (
+          {visibleTabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveView(tab.id)}
@@ -35,9 +44,9 @@ export default function ReportesPage() {
             </button>
           ))}
         </div>
-        {activeView === 'consolidado' && <ReportesConsolidado />}
-        {activeView === 'avanzado' && <ReportesMejorados />}
-        {activeView === 'completo' && <ReportesManagement />}
+        {activeView === 'consolidado' && features.multiSucursal && <ReportesConsolidado />}
+        {activeView === 'avanzado'    && <ReportesMejorados />}
+        {activeView === 'completo'    && <ReportesManagement />}
       </div>
     </AppLayout>
   );
