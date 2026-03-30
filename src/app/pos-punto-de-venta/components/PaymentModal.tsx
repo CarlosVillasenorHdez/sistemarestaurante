@@ -4,7 +4,6 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { usePrinter } from '@/hooks/usePrinter';
 import { createClient } from '@/lib/supabase/client';
 import { X, CreditCard, Banknote, Check, Printer, Receipt, Split, Plus, Minus, Users, ChevronRight, ArrowLeft, Star, Search, UserCheck, XCircle } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 
 interface OrderItemRef {
   id: string;           // menuItem.id
