@@ -174,13 +174,18 @@ export default function SalesChart() {
   const data = view === 'hoy' ? hourlyData : weeklyData;
   const xKey = view === 'hoy' ? 'hora' : 'dia';
 
-  // Dynamic date — generated at render time
-  const today = new Date().toLocaleDateString('es-MX', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  });
+  // Dynamic date — computed only on the client to avoid SSR/client mismatch
+  const [today, setToday] = useState('');
+  useEffect(() => {
+    setToday(
+      new Date().toLocaleDateString('es-MX', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      })
+    );
+  }, []);
 
   return (
     <div

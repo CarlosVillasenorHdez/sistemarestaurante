@@ -218,10 +218,41 @@ export default function POSClient() {
     fetchMenu();
   }, [fetchTables, fetchMenu]);
 
+  const [restaurantName, setRestaurantName] = useState('');
+  const [printerConfigData, setPrinterConfigData] = useState<any>(null);
+
   useEffect(() => {
+    // Cargar nombre de sucursal desde system_config
     supabase.from('system_config')
-      .select('config_value').eq('config_key', 'branch_name').single()
-      .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
+      .select('config_key, config_value')
+      .in('config_key', ['branch_name', 'restaurant_name'])
+      .then(({ data }) => {
+        data?.forEach((r: any) => {
+          if (r.config_key === 'branch_name')    setBranchName(r.config_value);
+          if (r.config_key === 'restaurant_name') setRestaurantName(r.config_value);
+        });
+      });
+
+    // Cargar config de impresora
+    supabase.from('printer_config').select('*').limit(1).single()
+      .then(({ data }) => {
+        if (data) setPrinterConfigData({
+          headerLine1:     data.header_line1,
+          headerLine2:     data.header_line2,
+          footerText:      data.footer_text,
+          separatorChar:   data.separator_char,
+          paperWidth:      data.paper_width as 58 | 80,
+          autoCut:         data.auto_cut,
+          showOrderNumber: data.show_order_number,
+          showDate:        data.show_date,
+          showMesa:        data.show_mesa,
+          showMesero:      data.show_mesero,
+          showSubtotal:    data.show_subtotal,
+          showIva:         data.show_iva,
+          showDiscount:    data.show_discount,
+          showUnitPrice:   data.show_unit_price,
+        });
+      })
 
     // Cargar sucursal activa del selector
     try {
@@ -593,6 +624,14 @@ export default function POSClient() {
 
   // ─── Payment ──────────────────────────────────────────────────────────────
 
+  const handleSendKitchenNote = async (note: string) => {
+    if (!selectedTable?.currentOrderId) return;
+    await supabase.from('orders')
+      .update({ kitchen_notes: note, updated_at: new Date().toISOString() })
+      .eq('id', selectedTable.currentOrderId);
+    toast.success('Nota enviada a cocina');
+  };
+
   const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
     if (!selectedTable) return;
 
@@ -796,6 +835,7 @@ export default function POSClient() {
             onUpdateNote={handleUpdateNote}
             kitchenSent={kitchenSent}
             sendingToKitchen={sendingToKitchen}
+            onSendKitchenNote={handleSendKitchenNote}
           />
         </div>
       </div>
@@ -814,8 +854,12 @@ export default function POSClient() {
             quantity: oi.quantity,
             notes: oi.notes,
           }))}
+          orderNumber={selectedTable?.currentOrderId ?? undefined}
           mesa={selectedTable?.name}
           mesero={selectedTable?.waiter || 'Administrador'}
+          restaurantName={restaurantName || branchName}
+          branchName={branchName}
+          printerConfig={printerConfigData}
           onClose={() => setShowPaymentModal(false)}
           onComplete={handlePaymentComplete}
         />

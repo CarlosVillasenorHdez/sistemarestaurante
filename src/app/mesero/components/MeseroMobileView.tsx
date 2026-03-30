@@ -41,6 +41,9 @@ export default function MeseroMobileView() {
   const [branchName, setBranchName] = useState('Sucursal Principal');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [kitchenNote, setKitchenNote] = useState('');
+  const [sendingNote, setSendingNote] = useState(false);
 
   useEffect(() => {
     supabase
@@ -232,6 +235,18 @@ export default function MeseroMobileView() {
   const itemCount = orderItems.reduce((s, i) => s + i.qty, 0);
 
   // ─── Send order to kitchen ────────────────────────────────────────────────
+
+  const sendKitchenNote = async () => {
+    if (!currentOrderId || !kitchenNote.trim()) return;
+    setSendingNote(true);
+    await supabase.from('orders')
+      .update({ kitchen_notes: kitchenNote.trim(), updated_at: new Date().toISOString() })
+      .eq('id', currentOrderId);
+    setSendingNote(false);
+    setKitchenNote('');
+    setShowNoteModal(false);
+    toast.success('Nota enviada a cocina');
+  };
 
   const handlePaymentComplete = async (method: 'efectivo' | 'tarjeta', amountPaid: number) => {
     if (!selectedTable || !currentOrderId) return;
@@ -532,19 +547,69 @@ export default function MeseroMobileView() {
                 <Send size={16} /> {sending ? 'Enviando...' : 'Enviar a Cocina'}
               </button>
               {currentOrderId && (
-                <button
-                  onClick={() => setShowPayment(true)}
-                  disabled={orderItems.length === 0}
-                  className="w-full py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-transform"
-                  style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}
-                >
-                  <CreditCard size={16} /> Cobrar ${total.toFixed(2)}
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setShowNoteModal(true)}
+                    className="py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                    style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#d97706', border: '1px solid rgba(245,158,11,0.3)' }}
+                  >
+                    <MessageSquare size={15} /> Nota
+                  </button>
+                  <button
+                    onClick={() => setShowPayment(true)}
+                    disabled={orderItems.length === 0}
+                    className="py-3 rounded-2xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-transform"
+                    style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}
+                  >
+                    <CreditCard size={15} /> Cobrar
+                  </button>
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
+      {/* Modal nota a cocina */}
+      {showNoteModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <div className="w-full max-w-lg rounded-2xl p-5 space-y-3"
+            style={{ backgroundColor: 'white' }}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">Nota a cocina</h3>
+              <button onClick={() => { setShowNoteModal(false); setKitchenNote(''); }}
+                className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Envía una nota urgente sobre la orden de {selectedTable?.name}.
+              Aparecerá resaltada en la pantalla de cocina.
+            </p>
+            <textarea
+              value={kitchenNote}
+              onChange={e => setKitchenNote(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border text-sm resize-none outline-none"
+              style={{ borderColor: '#e5e7eb', backgroundColor: '#fefce8' }}
+              placeholder="Ej: sin cebolla en los tacos, alergia a mariscos, urgente mesa VIP..."
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { setShowNoteModal(false); setKitchenNote(''); }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ backgroundColor: '#f3f4f6', color: '#6b7280' }}>
+                Cancelar
+              </button>
+              <button onClick={sendKitchenNote}
+                disabled={sendingNote || !kitchenNote.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+                {sendingNote ? 'Enviando...' : '📝 Enviar a cocina'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPayment && selectedTable && (
         <PaymentModal
           total={total}
