@@ -31,6 +31,7 @@ const navGroups: { group: string; items: NavItem[] }[] = [
       { label: 'Punto de Venta', icon: ShoppingCart, href: '/pos-punto-de-venta', pageKey: 'pos' },
       { label: 'Mesero Móvil', icon: Smartphone, href: '/mesero', pageKey: 'mesero', feature: 'meseroMovil' as keyof Features },
       { label: 'Órdenes', icon: ClipboardList, href: '/orders-management', pageKey: 'orders' },
+      { label: 'Corte de Caja', icon: Scissors, href: '/corte-caja', pageKey: 'corte_caja' },
       { label: 'Cocina', icon: ChefHat, href: '/cocina', pageKey: 'cocina' },
       { label: 'Delivery', icon: Truck, href: '/delivery', pageKey: 'delivery', feature: 'delivery' as keyof Features },
     ],
