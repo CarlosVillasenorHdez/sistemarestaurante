@@ -289,9 +289,7 @@ export default function AlarmasManagement() {
       {/* Filters */}
       <div
         className="bg-white rounded-xl border mb-4 p-4"
-        style={
-          { borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
-        }
+        style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
       >
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 flex-wrap">
@@ -347,9 +345,7 @@ export default function AlarmasManagement() {
       {/* Alerts List */}
       <div
         className="bg-white rounded-xl border overflow-hidden"
-        style={
-          { borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
-        }
+        style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
       >
         {loading ? (
           <div className="divide-y">
@@ -365,12 +361,15 @@ export default function AlarmasManagement() {
           </div>
         ) : alertasFiltradas.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" style={{ backgroundColor: '#f0fdf4' }}>
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+              style={{ backgroundColor: '#f0fdf4' }}
+            >
               <CheckCircle size={24} className="text-green-500" />
             </div>
             <p className="text-base font-semibold text-gray-700">Sin alertas activas</p>
             <p className="text-sm text-gray-400 mt-1">
-              {filtro !== 'todas' || soloAltas ? 'No hay alertas con los filtros seleccionados' : 'Todo el sistema está funcionando correctamente'}
+              {filtro !== 'todas' || soloAltas ?'No hay alertas con los filtros seleccionados' :'Todo el sistema está funcionando correctamente'}
             </p>
           </div>
         ) : (
