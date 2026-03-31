@@ -8,7 +8,6 @@ import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package,
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useFeatures, type Features } from '@/hooks/useFeatures';
-import Icon from '@/components/ui/AppIcon';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────

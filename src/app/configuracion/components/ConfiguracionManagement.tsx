@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePrinter } from '@/hooks/usePrinter';
 import { DEFAULT_FEATURES, FEATURE_KEYS, Features, invalidateFeaturesCache } from '@/hooks/useFeatures';
+import Icon from '@/components/ui/AppIcon';
+
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────

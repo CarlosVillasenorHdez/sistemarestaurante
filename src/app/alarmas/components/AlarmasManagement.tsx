@@ -48,12 +48,36 @@ const severityConfig: Record<
   AlertSeverity,
   { bg: string; border: string; dot: string; label: string; badgeBg: string; badgeText: string }
 > = {
-  alta: { bg: '#fef2f2', border: '#fca5a5', dot: '#ef4444', label: 'Alta', badgeBg: '#fee2e2', badgeText: '#991b1b' },
-  media: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b', label: 'Media', badgeBg: '#fef3c7', badgeText: '#92400e' },
-  baja: { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: 'Baja', badgeBg: '#dbeafe', badgeText: '#1e40af' },
+  alta: {
+    bg: '#fef2f2',
+    border: '#fca5a5',
+    dot: '#ef4444',
+    label: 'Alta',
+    badgeBg: '#fee2e2',
+    badgeText: '#991b1b',
+  },
+  media: {
+    bg: '#fffbeb',
+    border: '#fde68a',
+    dot: '#f59e0b',
+    label: 'Media',
+    badgeBg: '#fef3c7',
+    badgeText: '#92400e',
+  },
+  baja: {
+    bg: '#eff6ff',
+    border: '#93c5fd',
+    dot: '#3b82f6',
+    label: 'Baja',
+    badgeBg: '#dbeafe',
+    badgeText: '#1e40af',
+  },
 };
 
-const categoryConfig: Record<AlertCategory, { label: string; icon: React.ElementType; color: string }> = {
+const categoryConfig: Record<
+  AlertCategory,
+  { label: string; icon: React.ElementType; color: string }
+> = {
   inventario: { label: 'Inventario', icon: Package, color: '#8b5cf6' },
   ordenes: { label: 'Órdenes', icon: Clock, color: '#f59e0b' },
   gastos: { label: 'Gastos', icon: Receipt, color: '#ef4444' },
