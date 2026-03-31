@@ -1,12 +1,12 @@
 {
-    "name": "SistemaRestaurante",
-    "short_name": "SistemaRest",
-    "description": "Gesti\u00f3n integral para restaurantes",
+    "name": "Aldente",
+    "short_name": "Aldente",
+    "description": "Gestión integral para restaurantes",
     "start_url": "/dashboard",
     "display": "standalone",
     "background_color": "#1B3A6B",
     "theme_color": "#f59e0b",
-    "orientation": "landscape",
+    "orientation": "any",
     "icons": [
         {
             "src": "/assets/images/app_logo.png",
