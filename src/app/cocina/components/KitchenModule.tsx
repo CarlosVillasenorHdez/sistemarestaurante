@@ -331,9 +331,14 @@ export default function KitchenModule() {
     setLoading(false);
   }, [supabase]);
 
+  // Keep a ref to fetchOrders so realtime callbacks always call the latest version
+  const fetchOrdersRef = useRef(fetchOrders);
+  useEffect(() => { fetchOrdersRef.current = fetchOrders; }, [fetchOrders]);
+
   useEffect(() => {
     fetchOrders();
-    const interval = setInterval(fetchOrders, 30000);
+    // Fallback polling every 10 seconds in case realtime drops
+    const interval = setInterval(() => fetchOrdersRef.current(), 10000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
 
@@ -348,7 +353,12 @@ export default function KitchenModule() {
       setRealtimeStatus('reconectando');
       channel = supabase
         .channel(`kitchen-orders-${Date.now()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => { fetchOrders(); })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+          fetchOrdersRef.current();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+          fetchOrdersRef.current();
+        })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             setRealtimeStatus('conectado'); retryCount = 0;
@@ -370,7 +380,7 @@ export default function KitchenModule() {
       if (retryTimeout) clearTimeout(retryTimeout);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, fetchOrders]);
+  }, [supabase]);
 
   // ─── Drag handlers ──────────────────────────────────────────────────────────
 
