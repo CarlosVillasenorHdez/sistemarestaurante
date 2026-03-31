@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useFeatures, type Features } from '@/hooks/useFeatures';
 
 
+
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NavItem {
