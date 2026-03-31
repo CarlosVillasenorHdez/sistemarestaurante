@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Pencil, Shield, Eye, EyeOff, UserCheck, RefreshCw, AlertCircle, Lock, ChevronDown, ChevronUp, CheckSquare, Square, Users } from 'lucide-react';
-import { useAuth, AppRole } from '@/contexts/AuthContext';
+import { useAuth, AppRole, BUILTIN_ROLES } from '@/contexts/AuthContext';
 import { invalidatePermissionsCache } from '@/hooks/useRolePermissions';
 import { createClient } from '@/lib/supabase/client';
 
-const ROLE_LABELS: Record<AppRole, string> = {
+const ROLE_LABELS: Record<string, string> = {
   admin: 'Administrador',
   gerente: 'Gerente',
   cajero: 'Cajero',
@@ -16,7 +16,7 @@ const ROLE_LABELS: Record<AppRole, string> = {
   repartidor: 'Repartidor',
 };
 
-const ROLE_COLORS: Record<AppRole, string> = {
+const ROLE_COLORS: Record<string, string> = {
   admin: '#f59e0b',
   gerente: '#3b82f6',
   cajero: '#8b5cf6',
@@ -26,7 +26,9 @@ const ROLE_COLORS: Record<AppRole, string> = {
   repartidor: '#14b8a6',
 };
 
-const ALL_ROLES: AppRole[] = ['admin', 'gerente', 'cajero', 'mesero', 'cocinero', 'ayudante_cocina', 'repartidor'];
+// ALL_ROLES is now dynamic — loaded from DB. Builtin roles are always included.
+const BUILTIN_ROLE_LABELS: Record<string, string> = { admin: 'Administrador', gerente: 'Gerente', cajero: 'Cajero', mesero: 'Mesero', cocinero: 'Cocinero', ayudante_cocina: 'Ayudante de Cocina', repartidor: 'Repartidor' };
+const BUILTIN_ROLE_COLORS: Record<string, string> = { admin: '#f59e0b', gerente: '#3b82f6', cajero: '#8b5cf6', mesero: '#10b981', cocinero: '#ef4444', ayudante_cocina: '#f97316', repartidor: '#14b8a6' };
 
 // Map employee role strings to AppRole
 const EMPLOYEE_ROLE_MAP: Record<string, AppRole> = {
@@ -41,15 +43,24 @@ const EMPLOYEE_ROLE_MAP: Record<string, AppRole> = {
 
 // Pages that can be toggled per role
 const PAGE_DEFINITIONS = [
-  { key: 'dashboard', label: 'Dashboard', group: 'OPERACIONES' },
-  { key: 'pos', label: 'Punto de Venta', group: 'OPERACIONES' },
-  { key: 'orders', label: 'Órdenes', group: 'OPERACIONES' },
-  { key: 'menu', label: 'Menú', group: 'GESTIÓN' },
-  { key: 'inventario', label: 'Inventario', group: 'GESTIÓN' },
-  { key: 'personal', label: 'Personal', group: 'GESTIÓN' },
-  { key: 'gastos', label: 'Gastos', group: 'GESTIÓN' },
-  { key: 'reportes', label: 'Reportes', group: 'ANÁLISIS' },
-  { key: 'configuracion', label: 'Configuración', group: 'SISTEMA' },
+  { key: 'dashboard',       label: 'Dashboard',         group: 'OPERACIONES' },
+  { key: 'pos',             label: 'Punto de Venta',    group: 'OPERACIONES' },
+  { key: 'mesero',          label: 'Mesero Móvil',      group: 'OPERACIONES' },
+  { key: 'orders',          label: 'Órdenes',           group: 'OPERACIONES' },
+  { key: 'corte_caja',      label: 'Corte de Caja',     group: 'OPERACIONES' },
+  { key: 'cocina',          label: 'Cocina (KDS)',       group: 'OPERACIONES' },
+  { key: 'delivery',        label: 'Delivery',          group: 'OPERACIONES' },
+  { key: 'menu',            label: 'Menú',              group: 'GESTIÓN' },
+  { key: 'inventario',      label: 'Inventario',        group: 'GESTIÓN' },
+  { key: 'reservaciones',   label: 'Reservaciones',     group: 'GESTIÓN' },
+  { key: 'lealtad',         label: 'Lealtad',           group: 'GESTIÓN' },
+  { key: 'personal',        label: 'Personal',          group: 'GESTIÓN' },
+  { key: 'recursos_humanos',label: 'Recursos Humanos',  group: 'GESTIÓN' },
+  { key: 'gastos',          label: 'Gastos',            group: 'GESTIÓN' },
+  { key: 'sucursales',      label: 'Multi-Sucursal',    group: 'GESTIÓN' },
+  { key: 'reportes',        label: 'Reportes',          group: 'ANÁLISIS' },
+  { key: 'alarmas',         label: 'Alarmas',           group: 'ANÁLISIS' },
+  { key: 'configuracion',   label: 'Configuración',     group: 'SISTEMA' },
 ];
 
 interface AppUser {
@@ -108,7 +119,18 @@ export default function UsuariosManagement() {
   const [permLoading, setPermLoading] = useState(true);
   const [permSaving, setPermSaving] = useState(false);
   const [permSaved, setPermSaved] = useState(false);
-  const [expandedRole, setExpandedRole] = useState<AppRole | null>('gerente');
+  const [expandedRole, setExpandedRole] = useState<string | null>('gerente');
+
+  // All roles (builtin + custom from DB)
+  const [allRoles, setAllRoles] = useState<string[]>([...BUILTIN_ROLES]);
+  const [roleLabels, setRoleLabels] = useState<Record<string, string>>({ ...BUILTIN_ROLE_LABELS });
+  const [roleColors] = useState<Record<string, string>>({ ...BUILTIN_ROLE_COLORS });
+
+  // New custom profile form
+  const [newProfileOpen, setNewProfileOpen] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileKey, setNewProfileKey] = useState('');
+  const [newProfileError, setNewProfileError] = useState('');
 
   const isAdmin = true;
 
@@ -143,24 +165,40 @@ export default function UsuariosManagement() {
 
       // Build map from DB data
       const map: AllRolePermissions = {};
+      const discoveredRoles = new Set<string>([...BUILTIN_ROLES]);
+      const discoveredLabels: Record<string, string> = { ...BUILTIN_ROLE_LABELS };
+
       if (data && !error) {
         data.forEach((row: any) => {
           if (!map[row.role]) map[row.role] = {};
           map[row.role][row.page_key] = row.can_access;
+          // Discover custom roles from DB
+          if (!BUILTIN_ROLES.includes(row.role as typeof BUILTIN_ROLES[number])) {
+            discoveredRoles.add(row.role);
+            if (!discoveredLabels[row.role]) {
+              // Convert key to label: 'supervisor_turno' -> 'Supervisor Turno'
+              discoveredLabels[row.role] = row.role
+                .split('_')
+                .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' ');
+            }
+          }
         });
       }
 
-      // Ensure all roles have entries for all pages (fill gaps with false)
-      ALL_ROLES.forEach((role) => {
+      // Ensure all roles have entries for all pages
+      const roleList = Array.from(discoveredRoles);
+      roleList.forEach((role) => {
         if (!map[role]) map[role] = {};
         PAGE_DEFINITIONS.forEach((page) => {
           if (!(page.key in map[role])) {
-            // Default: admin gets true, others get false for unlisted pages
             map[role][page.key] = role === 'admin';
           }
         });
       });
 
+      setAllRoles(roleList);
+      setRoleLabels(discoveredLabels);
       setPermissions(map);
     } catch (e: unknown) {
       setFormError(e instanceof Error ? e.message : 'Error al cargar permisos');
@@ -279,6 +317,48 @@ export default function UsuariosManagement() {
     }
   }
 
+  async function handleCreateProfile() {
+    const key = newProfileKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!key || key.length < 2) {
+      setNewProfileError('Ingresa un nombre válido (mínimo 2 caracteres)');
+      return;
+    }
+    if (allRoles.includes(key)) {
+      setNewProfileError('Ya existe un perfil con ese nombre');
+      return;
+    }
+
+    // Create empty permissions for all pages (default false)
+    const newPerms: RolePermissions = {};
+    PAGE_DEFINITIONS.forEach((p) => { newPerms[p.key] = false; });
+
+    // Save to DB
+    const rows = PAGE_DEFINITIONS.map((p) => ({
+      role: key, page_key: p.key, can_access: false,
+    }));
+    const { error } = await supabase
+      .from('role_permissions')
+      .upsert(rows, { onConflict: 'role,page_key' });
+
+    if (error) {
+      setNewProfileError('Error al crear perfil: ' + error.message);
+      return;
+    }
+
+    const label = newProfileName.trim() ||
+      key.split('_').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+    setAllRoles((prev) => [...prev, key]);
+    setRoleLabels((prev) => ({ ...prev, [key]: label }));
+    setPermissions((prev) => ({ ...prev, [key]: newPerms }));
+    setExpandedRole(key);
+    setNewProfileOpen(false);
+    setNewProfileName('');
+    setNewProfileKey('');
+    setNewProfileError('');
+    invalidatePermissionsCache();
+  }
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center py-24 gap-4">
@@ -375,7 +455,7 @@ export default function UsuariosManagement() {
                     {/* Empleado (full name from Personal) */}
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: `${ROLE_COLORS[u.appRole]}25`, color: ROLE_COLORS[u.appRole] }}>
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ backgroundColor: `${(roleColors[u.appRole] ?? BUILTIN_ROLE_COLORS[u.appRole] ?? '#64748b')}25`, color: (roleColors[u.appRole] ?? BUILTIN_ROLE_COLORS[u.appRole] ?? '#64748b') }}>
                           {u.fullName ? u.fullName.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase() : '?'}
                         </div>
                         <span className="text-sm text-white">{u.fullName || '—'}</span>
@@ -387,8 +467,8 @@ export default function UsuariosManagement() {
                     </td>
                     {/* Perfil (read-only badge) */}
                     <td className="px-4 py-3.5">
-                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ backgroundColor: `${ROLE_COLORS[u.appRole]}20`, color: ROLE_COLORS[u.appRole] }}>
-                        {ROLE_LABELS[u.appRole]}
+                      <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ backgroundColor: `${(roleColors[u.appRole] ?? BUILTIN_ROLE_COLORS[u.appRole] ?? '#64748b')}20`, color: (roleColors[u.appRole] ?? BUILTIN_ROLE_COLORS[u.appRole] ?? '#64748b') }}>
+                        {(roleLabels[u.appRole] ?? u.appRole)}
                       </span>
                     </td>
                     {/* Password action */}
@@ -424,23 +504,23 @@ export default function UsuariosManagement() {
           ) : (
             <>
               <div className="space-y-3 mb-5">
-                {ALL_ROLES.map((role) => {
+                {allRoles.map((role) => {
                   const isAdminRole = role === 'admin';
                   const isExpanded = expandedRole === role;
                   const rolePerms = permissions[role] || {};
                   const accessCount = isAdminRole ? PAGE_DEFINITIONS.length : PAGE_DEFINITIONS.filter((p) => rolePerms[p.key]).length;
 
                   return (
-                    <div key={role} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isExpanded ? ROLE_COLORS[role] + '40' : '#243f72'}` }}>
+                    <div key={role} className="rounded-xl overflow-hidden" style={{ border: `1px solid ${isExpanded ? (roleColors[role] ?? '#64748b') + '40' : '#243f72'}` }}>
                       {/* Role header */}
                       <button
                         onClick={() => setExpandedRole(isExpanded ? null : role)}
                         className="w-full flex items-center justify-between px-4 py-3 transition-all"
-                        style={{ backgroundColor: isExpanded ? `${ROLE_COLORS[role]}10` : 'rgba(255,255,255,0.03)' }}
+                        style={{ backgroundColor: isExpanded ? `${(roleColors[role] ?? '#64748b')}10` : 'rgba(255,255,255,0.03)' }}
                       >
                         <div className="flex items-center gap-3">
-                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ROLE_COLORS[role] }} />
-                          <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{ROLE_LABELS[role]}</span>
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: (roleColors[role] ?? '#64748b') }} />
+                          <span className="text-sm font-semibold" style={{ color: '#f1f5f9' }}>{roleLabels[role] ?? role}</span>
                           {isAdminRole && (
                             <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b' }}>
                               Acceso total
@@ -477,7 +557,7 @@ export default function UsuariosManagement() {
                                         {isAdminRole ? (
                                           <Lock size={13} style={{ color: 'rgba(255,255,255,0.3)' }} />
                                         ) : hasAccess ? (
-                                          <CheckSquare size={17} style={{ color: ROLE_COLORS[role] }} />
+                                          <CheckSquare size={17} style={{ color: (roleColors[role] ?? '#64748b') }} />
                                         ) : (
                                           <Square size={17} style={{ color: 'rgba(255,255,255,0.2)' }} />
                                         )}
@@ -495,21 +575,85 @@ export default function UsuariosManagement() {
                 })}
               </div>
 
-              <button
-                onClick={handleSavePermissions}
-                disabled={permSaving}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
-                style={{ backgroundColor: permSaved ? 'rgba(34,197,94,0.2)' : '#f59e0b', color: permSaved ? '#22c55e' : '#1B3A6B', border: permSaved ? '1px solid rgba(34,197,94,0.4)' : 'none' }}
-              >
-                {permSaving ? (
-                  <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#1B3A6B', borderTopColor: 'transparent' }} />
-                ) : permSaved ? (
-                  <UserCheck size={15} />
-                ) : (
-                  <Shield size={15} />
-                )}
-                {permSaved ? 'Permisos guardados' : 'Guardar Permisos'}
-              </button>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={handleSavePermissions}
+                  disabled={permSaving}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                  style={{ backgroundColor: permSaved ? 'rgba(34,197,94,0.2)' : '#f59e0b', color: permSaved ? '#22c55e' : '#1B3A6B', border: permSaved ? '1px solid rgba(34,197,94,0.4)' : 'none' }}
+                >
+                  {permSaving ? (
+                    <div className="w-4 h-4 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: '#1B3A6B', borderTopColor: 'transparent' }} />
+                  ) : permSaved ? (
+                    <UserCheck size={15} />
+                  ) : (
+                    <Shield size={15} />
+                  )}
+                  {permSaved ? 'Permisos guardados' : 'Guardar Permisos'}
+                </button>
+
+                <button
+                  onClick={() => { setNewProfileOpen(true); setNewProfileError(''); }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: '#f1f5f9', border: '1px solid #2a3f5f' }}
+                >
+                  <Plus size={14} />
+                  Nuevo Perfil
+                </button>
+              </div>
+
+              {/* New Profile Modal */}
+              {newProfileOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.7)' }}>
+                  <div className="w-full max-w-sm rounded-2xl p-6" style={{ backgroundColor: '#1a2535', border: '1px solid #2a3f5f' }}>
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>Nuevo Perfil de Acceso</h2>
+                      <button onClick={() => setNewProfileOpen(false)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                          Nombre del perfil *
+                        </label>
+                        <input
+                          type="text"
+                          value={newProfileName}
+                          onChange={(e) => {
+                            setNewProfileName(e.target.value);
+                            setNewProfileKey(e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, ''));
+                            setNewProfileError('');
+                          }}
+                          placeholder="Ej: Supervisor de Turno"
+                          maxLength={40}
+                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                          style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                        />
+                        {newProfileKey && (
+                          <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                            Clave interna: <span style={{ color: '#f59e0b' }}>{newProfileKey}</span>
+                          </p>
+                        )}
+                      </div>
+                      {newProfileError && (
+                        <p className="text-xs" style={{ color: '#f87171' }}>⚠️ {newProfileError}</p>
+                      )}
+                      <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                        Se creará con todos los accesos desactivados. Actívalos manualmente después de crear el perfil.
+                      </p>
+                      <div className="flex gap-3 pt-1">
+                        <button onClick={() => setNewProfileOpen(false)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold" style={{ backgroundColor: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)' }}>
+                          Cancelar
+                        </button>
+                        <button onClick={handleCreateProfile} disabled={!newProfileName.trim()} className="flex-1 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-40" style={{ backgroundColor: '#f59e0b', color: '#1B3A6B' }}>
+                          Crear Perfil
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
