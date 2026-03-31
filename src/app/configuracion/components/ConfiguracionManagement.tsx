@@ -551,10 +551,13 @@ export default function ConfiguracionManagement() {
     }
 
     // ── Sync restaurant_tables to match the layout ──────────────────────────
+    // Only sync REAL TABLES — skip architectural elements (pared, bano, barra, etc.)
+    const realTables = layoutTables.filter((t) => !t.elementType || t.elementType === 'mesa');
+
     // 1. Fetch existing restaurant_tables
     const { data: existingRows } = await supabase.from('restaurant_tables').select('id, number');
     const existingNums = new Set((existingRows || []).map((r: any) => r.number));
-    const layoutNums = new Set(layoutTables.map((t) => t.number));
+    const layoutNums = new Set(realTables.map((t) => t.number));
 
     // 2. Delete tables that are no longer in the layout
     const toDelete = (existingRows || []).filter((r: any) => !layoutNums.has(r.number));
@@ -562,10 +565,9 @@ export default function ConfiguracionManagement() {
       await supabase.from('restaurant_tables').delete().in('id', toDelete.map((r: any) => r.id));
     }
 
-    // 3. Upsert tables that are in the layout (insert new, update existing name/capacity)
-    for (const lt of layoutTables) {
+    // 3. Upsert real tables only
+    for (const lt of realTables) {
       if (!existingNums.has(lt.number)) {
-        // Insert new
         await supabase.from('restaurant_tables').insert({
           number: lt.number,
           name: lt.name,
@@ -573,7 +575,6 @@ export default function ConfiguracionManagement() {
           status: 'libre',
         });
       } else {
-        // Update name and capacity for existing
         const existing = (existingRows || []).find((r: any) => r.number === lt.number);
         if (existing) {
           await supabase.from('restaurant_tables').update({
@@ -585,9 +586,9 @@ export default function ConfiguracionManagement() {
       }
     }
 
-    // 4. Sync table count to system_config
+    // 4. Sync real table count to system_config
     await supabase.from('system_config').upsert(
-      { config_key: 'table_count', config_value: String(layoutTables.length) },
+      { config_key: 'table_count', config_value: String(realTables.length) },
       { onConflict: 'config_key' }
     );
     setLayoutSaved(true);
