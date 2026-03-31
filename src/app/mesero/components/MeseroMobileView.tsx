@@ -43,6 +43,8 @@ export default function MeseroMobileView() {
   const prevReadyRef = React.useRef<string[]>([]);
   const [branchName, setBranchName] = useState('Sucursal Principal');
   const [myName, setMyName] = useState('Mesero');
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [showPayment, setShowPayment] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -360,15 +362,37 @@ export default function MeseroMobileView() {
                 style={{ backgroundColor: '#1B3A6B', color: '#f59e0b' }}>
                 👤 {myName}
               </span>
-              <button
-                onClick={() => {
-                  const name = window.prompt('¿Cómo te llamas?', myName);
-                  if (name?.trim()) { setMyName(name.trim()); localStorage.setItem('aldente_waiter_name', name.trim()); }
-                }}
-                className="text-xs text-gray-400 hover:text-gray-600 underline"
-              >
-                cambiar
-              </button>
+              {editingName ? (
+                <form onSubmit={e => {
+                  e.preventDefault();
+                  if (nameInput.trim()) {
+                    setMyName(nameInput.trim());
+                    localStorage.setItem('aldente_waiter_name', nameInput.trim());
+                  }
+                  setEditingName(false);
+                }} className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={nameInput}
+                    onChange={e => setNameInput(e.target.value)}
+                    autoFocus
+                    aria-label="Tu nombre"
+                    className="text-xs px-2 py-1 rounded-lg border w-24 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    style={{ borderColor: '#d1d5db', color: '#374151' }}
+                    maxLength={30}
+                  />
+                  <button type="submit" className="text-xs text-green-600 font-semibold px-1" aria-label="Guardar nombre">✓</button>
+                  <button type="button" onClick={() => setEditingName(false)} className="text-xs text-gray-400 px-1" aria-label="Cancelar">✕</button>
+                </form>
+              ) : (
+                <button
+                  onClick={() => { setNameInput(myName); setEditingName(true); }}
+                  aria-label="Cambiar nombre del mesero"
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >
+                  cambiar
+                </button>
+              )}
             </div>
           </div>
 
