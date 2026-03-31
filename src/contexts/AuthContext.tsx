@@ -175,6 +175,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const pinMatch = data.pin === pin || data.pin === hashed;
       if (!pinMatch) return { error: 'PIN incorrecto' };
 
+      // ── Sign into Supabase Auth so auth.uid() works for RLS ──────────────
+      // Use UUID-based email — stable, no encoding issues with special chars
+      const emailForAuth = `u.${data.id}@aldente.local`;
+      // Try sign in first, fall back to sign up if user doesn't exist in auth yet
+      let authError = null;
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: emailForAuth,
+        password: pin,  // use PIN as password — both are verified above
+      });
+      if (signInErr) {
+        // User doesn't exist in auth.users yet — create them
+        const { error: signUpErr } = await supabase.auth.signUp({
+          email: emailForAuth,
+          password: pin,
+          options: { emailRedirectTo: undefined },
+        });
+        if (signUpErr) {
+          authError = signUpErr.message;
+          // Non-fatal: session still works via sessionStorage, RLS will use fallback tenant
+          console.warn('Auth sign up failed (RLS will use fallback):', authError);
+        }
+      }
+
       const user: AppUser = {
         id: data.id,
         username: data.full_name,
@@ -196,9 +219,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   // ── Sign out ─────────────────────────────────────────────────────────────
   const signOut = useCallback(async () => {
+    await supabase.auth.signOut().catch(() => { /* ignore */ });
     clearSession();
     setAppUser(null);
-  }, []);
+  }, [supabase]);
 
   // ── Admin functions (kept for compatibility) ──────────────────────────────
   const createUser = useCallback(

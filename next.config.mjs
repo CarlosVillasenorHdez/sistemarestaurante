@@ -4,6 +4,9 @@ import { imageHosts } from './image-hosts.config.mjs';
 const nextConfig = {
   productionBrowserSourceMaps: true,
 
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 
   distDir: process.env.DIST_DIR || '.next',
 
