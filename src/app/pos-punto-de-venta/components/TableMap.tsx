@@ -67,6 +67,7 @@ export default function TableMap({
 }: TableMapProps) {
   const [hoveredTable, setHoveredTable] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [reservConfirm, setReservConfirm] = useState<{table: any} | null>(null);
   const [dragging, setDragging] = useState<{
     tableNumber: number;
     startMouseX: number;
@@ -297,10 +298,8 @@ export default function TableMap({
                 if (liveTable.status === 'libre') {
                   // Warn if table has a reservation coming up
                   if (reservedTables.includes(liveTable.id)) {
-                    const ok = window.confirm(
-                      `⚠️ ${liveTable.name} tiene una reservación próxima.\n\n¿Confirmas que deseas sentar a alguien en esta mesa?`
-                    );
-                    if (!ok) return;
+                    setReservConfirm({ table: liveTable });
+                    return;
                   }
                   onMarkOccupied(liveTable);
                 }
@@ -448,6 +447,7 @@ export default function TableMap({
 
   // ── GRID MODE (fallback when no layout) ──────────────────────────────────
   return (
+    <>
     <div className="p-5">
       {/* Legend + Summary */}
       <div className="flex flex-wrap items-center gap-4 mb-5">
@@ -497,10 +497,8 @@ export default function TableMap({
             if (isMerged) { onTableSelect(table); return; }
             if (table.status === 'libre') {
               if (reservedTables.includes(table.id)) {
-                const ok = window.confirm(
-                  `⚠️ ${table.name} tiene una reservación próxima.\n\n¿Confirmas que deseas sentar a alguien en esta mesa?`
-                );
-                if (!ok) return;
+                setReservConfirm({ table });
+                return;
               }
               onMarkOccupied(table);
             }
@@ -625,5 +623,38 @@ export default function TableMap({
         </div>
       )}
     </div>
+
+
+      {/* ── Reservation warning modal ── */}
+      {reservConfirm && (
+        <div role="dialog" aria-modal="true" aria-labelledby="reserv-warn-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: '#fef3c7' }}>
+              <span className="text-2xl">📅</span>
+            </div>
+            <h3 id="reserv-warn-title" className="text-base font-bold text-center text-gray-900 mb-2">Reservación próxima</h3>
+            <p className="text-sm text-center text-gray-500 mb-5">
+              <strong className="text-gray-800">{reservConfirm.table.name}</strong> tiene una reservación en los próximos minutos. ¿Deseas sentar a alguien de todas formas?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setReservConfirm(null)} aria-label="Elegir otra mesa"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700">
+                Elegir otra mesa
+              </button>
+              <button
+                onClick={() => { onMarkOccupied(reservConfirm.table); setReservConfirm(null); }}
+                aria-label="Confirmar sentar en mesa con reservación"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+                style={{ backgroundColor: '#f59e0b' }}>
+                Sentar aquí
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

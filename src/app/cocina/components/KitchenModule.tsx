@@ -265,6 +265,7 @@ export default function KitchenModule() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<KitchenStatus | null>(null);
   const [stationFilter, setStationFilter] = useState<string>('Todas');
+  const [cancelConfirm, setCancelConfirm] = useState<{orderId:string; mesa:string} | null>(null);
   const prevCountRef = useRef(0);
   const tick = useElapsedTick();
   const supabase = createClient();
@@ -464,8 +465,14 @@ export default function KitchenModule() {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
-  const handleCancelFromKitchen = async (orderId: string, mesa: string) => {
-    if (!window.confirm(`¿Cancelar la orden de ${mesa}?\n\nLa orden se eliminará del tablero.`)) return;
+  const handleCancelFromKitchen = (orderId: string, mesa: string) => {
+    setCancelConfirm({ orderId, mesa });
+  };
+
+  const executeCancelFromKitchen = async () => {
+    if (!cancelConfirm) return;
+    const { orderId, mesa } = cancelConfirm;
+    setCancelConfirm(null);
     const { error } = await supabase.from('orders').update({
       status: 'cancelada', kitchen_status: 'en_edicion', updated_at: new Date().toISOString(),
     }).eq('id', orderId);
@@ -493,6 +500,7 @@ export default function KitchenModule() {
   const totalReady  = filteredOrders.filter((o) => o.kitchenStatus === 'lista').length;
 
   return (
+    <>
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#0f1923' }}>
       <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((p) => !p)} />
       <div className="flex flex-col flex-1 overflow-hidden">
@@ -661,5 +669,38 @@ export default function KitchenModule() {
         </div>
       </div>
     </div>
+
+
+      {/* ── Cancel confirm modal ── */}
+      {cancelConfirm && (
+        <div role="dialog" aria-modal="true" aria-labelledby="kds-cancel-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <div className="w-full max-w-sm rounded-2xl p-6 shadow-2xl"
+            style={{ backgroundColor: '#1a2535', border: '1px solid #2a3f5f' }}>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ backgroundColor: 'rgba(239,68,68,0.15)' }}>
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <h3 id="kds-cancel-title" className="text-base font-bold text-center text-white mb-2">¿Cancelar orden?</h3>
+            <p className="text-sm text-center mb-5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              La orden de <strong className="text-white">{cancelConfirm.mesa}</strong> se eliminará del tablero.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setCancelConfirm(null)} aria-label="Mantener la orden"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)' }}>
+                Mantener orden
+              </button>
+              <button onClick={executeCancelFromKitchen} aria-label="Confirmar cancelación"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold"
+                style={{ backgroundColor: '#ef4444', color: 'white' }}>
+                Sí, cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

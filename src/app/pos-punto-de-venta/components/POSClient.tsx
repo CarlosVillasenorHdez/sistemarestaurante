@@ -88,10 +88,12 @@ export default function POSClient() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loadingTables, setLoadingTables] = useState(true);
   const [loadingMenu, setLoadingMenu] = useState(true);
-  const [view, setView] = useState<'tables' | 'menu'>('tables');
+  const [view, setView] = useState<'tables' | 'menu' | 'order_mobile'>('tables');
   const [discount, setDiscount] = useState<{ type: 'pct' | 'fixed'; value: number }>({ type: 'pct', value: 0 });
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [kitchenSent, setKitchenSent] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showNoKitchenConfirm, setShowNoKitchenConfirm] = useState(false);
   const [sentItemsSnapshot, setSentItemsSnapshot] = useState<{id:string;qty:number}[]>([]);
   const [sendingToKitchen, setSendingToKitchen] = useState(false);
 
@@ -649,11 +651,12 @@ export default function POSClient() {
 
   const handleCancelTable = async () => {
     if (!selectedTable) return;
-    const confirmed = window.confirm(
-      `¿Seguro que deseas cancelar y liberar ${selectedTable.name}?\n\nEsta acción eliminará todos los artículos de la orden sin cobrar.`
-    );
-    if (!confirmed) return;
+    setShowCancelConfirm(true);
+  };
 
+  const executeCancelTable = async () => {
+    if (!selectedTable) return;
+    setShowCancelConfirm(false);
     const groupIds = selectedTable.mergeGroupId
       ? tables.filter((t) => t.mergeGroupId === selectedTable.mergeGroupId).map((t) => t.id)
       : [selectedTable.id];
@@ -755,13 +758,14 @@ export default function POSClient() {
   }, [layoutTables, layoutId, tables, supabase]);
 
   return (
+    <>
     <div className="flex h-screen overflow-hidden bg-gray-50">
       <div className="flex-shrink-0">
         <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
       </div>
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Topbar title="Punto de Venta" subtitle="Gestión de mesas y órdenes" />
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden pb-14 md:pb-0">
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Tab bar */}
             <div className="flex items-center gap-1 px-4 pt-3 pb-0 bg-white border-b flex-shrink-0" style={{ borderColor: '#e5e7eb' }}>
@@ -856,6 +860,7 @@ export default function POSClient() {
             </div>
           </div>
 
+          <div className={`${selectedTable || view === 'order_mobile' ? 'flex' : 'hidden'} md:flex flex-col`}>
           <OrderPanel
             selectedTable={selectedTable}
             mergeGroupLabel={mergeGroupLabel}
@@ -870,10 +875,8 @@ export default function POSClient() {
             onDiscountChange={setDiscount}
             onCheckout={() => {
               if (!kitchenSent && orderItems.length > 0) {
-                const ok = window.confirm(
-                  '⚠️ Esta orden no ha sido enviada a cocina.\n\n¿Deseas cobrar sin que la cocina la haya preparado?'
-                );
-                if (!ok) return;
+                setShowNoKitchenConfirm(true);
+                return;
               }
               setShowPaymentModal(true);
             }}
@@ -884,8 +887,39 @@ export default function POSClient() {
             sendingToKitchen={sendingToKitchen}
             onSendKitchenNote={handleSendKitchenNote}
           />
+          </div>
         </div>
       </div>
+
+      {/* ── Mobile bottom tab bar ── */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 flex md:hidden border-t bg-white shadow-lg"
+        style={{ borderColor: '#e5e7eb' }}>
+        {[
+          { key: 'tables', label: 'Mesas', emoji: '🪑' },
+          { key: 'menu',   label: 'Menú',  emoji: '📋' },
+          { key: 'order_mobile', label: 'Orden', emoji: '🛒',
+            badge: orderItems.reduce((s,i) => s + i.quantity, 0) },
+        ].map(tab => (
+          <button key={tab.key}
+            onClick={() => setView(tab.key as any)}
+            className="flex-1 flex flex-col items-center justify-center py-2 text-xs font-semibold relative"
+            style={{ color: view === tab.key ? '#d97706' : '#6b7280' }}
+            aria-label={tab.label}
+            aria-current={view === tab.key ? 'page' : undefined}>
+            <span className="text-lg leading-none">{tab.emoji}</span>
+            <span className="mt-0.5">{tab.label}</span>
+            {tab.badge && tab.badge > 0 && (
+              <span className="absolute top-1 right-1/4 w-4 h-4 rounded-full text-xs font-bold flex items-center justify-center text-white"
+                style={{ backgroundColor: '#f59e0b', fontSize: '10px' }}>
+                {tab.badge > 9 ? '9+' : tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Spacer so content doesn't hide behind mobile tab bar */}
+      <div className="h-14 md:hidden flex-shrink-0" />
 
       {showPaymentModal && (
         <PaymentModal
@@ -912,5 +946,62 @@ export default function POSClient() {
         />
       )}
     </div>
+
+      {/* ── Confirm cancel order ── */}
+      {showCancelConfirm && selectedTable && (
+        <div role="dialog" aria-modal="true" aria-labelledby="pos-cancel-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 bg-red-50">
+              <span className="text-2xl">🗑️</span>
+            </div>
+            <h3 id="pos-cancel-title" className="text-base font-bold text-center text-gray-900 mb-2">¿Cancelar orden?</h3>
+            <p className="text-sm text-center text-gray-500 mb-5">
+              Se liberará <strong className="text-gray-800">{selectedTable.name}</strong> y se eliminarán todos los artículos sin cobrar.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowCancelConfirm(false)} aria-label="Mantener la orden"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700">
+                Mantener orden
+              </button>
+              <button onClick={executeCancelTable} aria-label="Confirmar cancelar y liberar mesa"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white">
+                Sí, cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirm cobro sin cocina ── */}
+      {showNoKitchenConfirm && (
+        <div role="dialog" aria-modal="true" aria-labelledby="pos-nokitchen-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}>
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 bg-amber-50">
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <h3 id="pos-nokitchen-title" className="text-base font-bold text-center text-gray-900 mb-2">Orden no enviada a cocina</h3>
+            <p className="text-sm text-center text-gray-500 mb-5">
+              Esta orden no fue enviada a cocina todavía. ¿Deseas cobrar de todas formas?
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowNoKitchenConfirm(false)} aria-label="Cancelar cobro"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700">
+                Cancelar
+              </button>
+              <button onClick={() => { setShowNoKitchenConfirm(false); setShowPaymentModal(true); }}
+                aria-label="Cobrar sin enviar a cocina"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+                style={{ backgroundColor: '#f59e0b' }}>
+                Sí, cobrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
