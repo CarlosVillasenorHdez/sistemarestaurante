@@ -287,11 +287,19 @@ export default function AlarmasManagement() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border mb-4 p-4" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div
+        className="bg-white rounded-xl border mb-4 p-4"
+        style={
+          { borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
+        }
+      >
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 flex-wrap">
             {FILTER_TABS.map((tab) => {
-              const count = tab.key === 'todas' ? alertas.length : conteosPorCategoria[tab.key as AlertCategory];
+              const count =
+                tab.key === 'todas'
+                  ? alertas.length
+                  : conteosPorCategoria[tab.key as AlertCategory];
               const isActive = filtro === tab.key;
               return (
                 <button
@@ -337,7 +345,12 @@ export default function AlarmasManagement() {
       </div>
 
       {/* Alerts List */}
-      <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+      <div
+        className="bg-white rounded-xl border overflow-hidden"
+        style={
+          { borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }
+        }
+      >
         {loading ? (
           <div className="divide-y">
             {Array.from({ length: 5 }).map((_, i) => (
