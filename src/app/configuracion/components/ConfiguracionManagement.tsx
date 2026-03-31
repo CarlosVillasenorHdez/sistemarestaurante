@@ -551,39 +551,31 @@ export default function ConfiguracionManagement() {
     }
 
     // ── Sync restaurant_tables to match the layout ──────────────────────────
-    // Only sync REAL TABLES — skip architectural elements (pared, bano, barra, etc.)
+    // ONLY real mesas — elementType === 'mesa' or undefined (backwards compat)
+    // Full replace strategy: delete ALL, re-insert only mesas
+    // This guarantees no architectural elements (paredes, baños, etc.) leak in
     const realTables = layoutTables.filter((t) => !t.elementType || t.elementType === 'mesa');
 
-    // 1. Fetch existing restaurant_tables
-    const { data: existingRows } = await supabase.from('restaurant_tables').select('id, number');
-    const existingNums = new Set((existingRows || []).map((r: any) => r.number));
-    const layoutNums = new Set(realTables.map((t) => t.number));
+    // 1. Fetch existing rows to preserve order IDs and statuses for occupied tables
+    const { data: existingRows } = await supabase
+      .from('restaurant_tables')
+      .select('id, number, status, current_order_id, waiter');
 
-    // 2. Delete tables that are no longer in the layout
-    const toDelete = (existingRows || []).filter((r: any) => !layoutNums.has(r.number));
-    if (toDelete.length > 0) {
-      await supabase.from('restaurant_tables').delete().in('id', toDelete.map((r: any) => r.id));
-    }
+    // 2. Delete ALL existing rows — clean slate
+    await supabase.from('restaurant_tables')
+      .delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
-    // 3. Upsert real tables only
+    // 3. Re-insert only real mesa entries, preserving operational state for occupied tables
     for (const lt of realTables) {
-      if (!existingNums.has(lt.number)) {
-        await supabase.from('restaurant_tables').insert({
-          number: lt.number,
-          name: lt.name,
-          capacity: lt.capacity,
-          status: 'libre',
-        });
-      } else {
-        const existing = (existingRows || []).find((r: any) => r.number === lt.number);
-        if (existing) {
-          await supabase.from('restaurant_tables').update({
-            name: lt.name,
-            capacity: lt.capacity,
-            updated_at: new Date().toISOString(),
-          }).eq('id', existing.id);
-        }
-      }
+      const existing = (existingRows || []).find((r: any) => r.number === lt.number);
+      await supabase.from('restaurant_tables').insert({
+        number: lt.number,
+        name: lt.name,
+        capacity: lt.capacity,
+        status: existing?.status ?? 'libre',
+        current_order_id: existing?.current_order_id ?? null,
+        waiter: existing?.waiter ?? null,
+      });
     }
 
     // 4. Sync real table count to system_config
