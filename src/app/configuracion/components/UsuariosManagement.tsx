@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Pencil, Shield, Eye, EyeOff, UserCheck, RefreshCw, AlertCircle, Lock, ChevronDown, ChevronUp, CheckSquare, Square, Users } from 'lucide-react';
 import { useAuth, AppRole } from '@/contexts/AuthContext';
+import { invalidatePermissionsCache } from '@/hooks/useRolePermissions';
 import { createClient } from '@/lib/supabase/client';
 
 const ROLE_LABELS: Record<AppRole, string> = {
@@ -138,17 +139,31 @@ export default function UsuariosManagement() {
   const fetchPermissions = useCallback(async () => {
     setPermLoading(true);
     try {
-      const { data } = await supabase.from('role_permissions').select('*');
-      if (data) {
-        const map: AllRolePermissions = {};
+      const { data, error } = await supabase.from('role_permissions').select('*');
+
+      // Build map from DB data
+      const map: AllRolePermissions = {};
+      if (data && !error) {
         data.forEach((row: any) => {
           if (!map[row.role]) map[row.role] = {};
           map[row.role][row.page_key] = row.can_access;
         });
-        setPermissions(map);
       }
-    } catch {
-      // ignore
+
+      // Ensure all roles have entries for all pages (fill gaps with false)
+      ALL_ROLES.forEach((role) => {
+        if (!map[role]) map[role] = {};
+        PAGE_DEFINITIONS.forEach((page) => {
+          if (!(page.key in map[role])) {
+            // Default: admin gets true, others get false for unlisted pages
+            map[role][page.key] = role === 'admin';
+          }
+        });
+      });
+
+      setPermissions(map);
+    } catch (e: unknown) {
+      setFormError(e instanceof Error ? e.message : 'Error al cargar permisos');
     } finally {
       setPermLoading(false);
     }
@@ -229,17 +244,36 @@ export default function UsuariosManagement() {
   async function handleSavePermissions() {
     setPermSaving(true);
     try {
-      const rows: any[] = [];
+      const rows: { role: string; page_key: string; can_access: boolean }[] = [];
       Object.entries(permissions).forEach(([role, pages]) => {
         Object.entries(pages).forEach(([page_key, can_access]) => {
-          rows.push({ role, page_key, can_access });
+          rows.push({ role, page_key, can_access: can_access as boolean });
         });
       });
-      await supabase.from('role_permissions').upsert(rows, { onConflict: 'role,page_key' });
+
+      if (rows.length === 0) {
+        setFormError('No hay permisos para guardar. Expande un rol y configura sus permisos.');
+        setPermSaving(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from('role_permissions')
+        .upsert(rows, { onConflict: 'role,page_key' });
+
+      if (error) {
+        setFormError('Error al guardar: ' + error.message);
+        setPermSaving(false);
+        return;
+      }
+
+      // Invalidate cache so Sidebar re-reads on next navigation
+      invalidatePermissionsCache();
       setPermSaved(true);
-      setTimeout(() => setPermSaved(false), 2500);
-    } catch {
-      // ignore
+      setFormError('');
+      setTimeout(() => setPermSaved(false), 3000);
+    } catch (e: unknown) {
+      setFormError(e instanceof Error ? e.message : 'Error desconocido al guardar');
     } finally {
       setPermSaving(false);
     }
