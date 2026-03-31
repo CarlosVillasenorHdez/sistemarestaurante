@@ -379,7 +379,10 @@ export default function AlarmasManagement() {
               const cat = categoryConfig[alerta.categoria];
               const CatIcon = cat.icon;
               return (
-                <div key={alerta.id} className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors">
+                <div
+                  key={alerta.id}
+                  className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors"
+                >
                   {/* Icon */}
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
@@ -431,7 +434,8 @@ export default function AlarmasManagement() {
       {/* Footer summary */}
       {!loading && alertasFiltradas.length > 0 && (
         <p className="text-xs text-gray-400 text-center mt-4">
-          Mostrando {alertasFiltradas.length} alerta{alertasFiltradas.length !== 1 ? 's' : ''} · Actualización automática cada 60 segundos
+          Mostrando {alertasFiltradas.length} alerta
+          {alertasFiltradas.length !== 1 ? 's' : ''} · Actualización automática cada 60 segundos
         </p>
       )}
     </div>
