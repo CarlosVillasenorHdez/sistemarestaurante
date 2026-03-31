@@ -430,7 +430,6 @@ export default function KitchenModule() {
     const updates: Record<string, any> = {
       kitchen_status: targetCol,
       updated_at: now,
-      status: { pendiente: 'abierta', preparacion: 'preparacion', lista: 'lista', entregada: 'cerrada' }[targetCol],
     };
     if (targetCol === 'preparacion') updates.kitchen_started_at = now;
     if (targetCol === 'lista') updates.kitchen_completed_at = now;
@@ -453,7 +452,6 @@ export default function KitchenModule() {
     const updates: Record<string, any> = {
       kitchen_status: next,
       updated_at: now,
-      status: { pendiente: 'abierta', preparacion: 'preparacion', lista: 'lista', entregada: 'cerrada' }[next],
     };
     if (next === 'preparacion') updates.kitchen_started_at = now;
     if (next === 'lista') updates.kitchen_completed_at = now;
@@ -469,7 +467,7 @@ export default function KitchenModule() {
 
   const handleDeliver = async (orderId: string) => {
     const { error } = await supabase.from('orders').update({
-      kitchen_status: 'entregada', status: 'cerrada', updated_at: new Date().toISOString(),
+      kitchen_status: 'entregada', updated_at: new Date().toISOString(),
     }).eq('id', orderId);
     if (error) { toast.error('Error al marcar como entregada: ' + error.message); return; }
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
