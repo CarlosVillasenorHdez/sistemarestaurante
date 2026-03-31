@@ -3,14 +3,9 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { createClient } from '../lib/supabase/client';
 
-export type AppRole =
-  | 'admin'
-  | 'gerente'
-  | 'cajero'
-  | 'mesero'
-  | 'cocinero'
-  | 'ayudante_cocina'
-  | 'repartidor';
+// AppRole is a string — supports both the 7 built-in roles and custom profiles
+export type AppRole = string;
+export const BUILTIN_ROLES = ['admin', 'gerente', 'cajero', 'mesero', 'cocinero', 'ayudante_cocina', 'repartidor'] as const;
 
 export interface AppUser {
   id: string;
