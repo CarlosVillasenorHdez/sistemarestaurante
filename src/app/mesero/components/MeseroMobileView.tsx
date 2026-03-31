@@ -75,7 +75,7 @@ export default function MeseroMobileView() {
     setLoading(true);
     try {
       const [{ data: tablesData }, { data: dishesData }] = await Promise.all([
-        supabase.from('restaurant_tables').select('*').order('number'),
+        supabase.from('restaurant_tables').select('*').gt('number', 0).order('number'),
         supabase.from('dishes').select('*').eq('available', true).order('category').order('name'),
       ]);
       setTables((tablesData || []).map((t: DbTable) => ({
