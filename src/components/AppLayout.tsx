@@ -16,6 +16,9 @@ interface AppLayoutProps {
 export default function AppLayout({ children, title, subtitle }: AppLayoutProps) {
   const { appUser, loading: authLoading } = useAuth();
   const router = useRouter();
+  const device = useDevice();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -23,6 +26,13 @@ export default function AppLayout({ children, title, subtitle }: AppLayoutProps)
       router.replace('/login');
     }
   }, [appUser, authLoading, router]);
+
+  // Auto-collapse sidebar on tablet/mobile
+  useEffect(() => {
+    if (device.isTablet || device.isMobile) {
+      setSidebarCollapsed(true);
+    }
+  }, [device.type]);
 
   // Show spinner while checking auth
   if (authLoading || !appUser) {
@@ -33,17 +43,6 @@ export default function AppLayout({ children, title, subtitle }: AppLayoutProps)
       </div>
     );
   }
-
-  const device = useDevice();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  // Auto-collapse sidebar on tablet/mobile
-  useEffect(() => {
-    if (device.isTablet || device.isMobile) {
-      setSidebarCollapsed(true);
-    }
-  }, [device.type]);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
