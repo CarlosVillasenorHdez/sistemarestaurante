@@ -260,7 +260,8 @@ export default function AlarmasManagement() {
               className="bg-white rounded-xl border p-4 text-left transition-all hover:shadow-md"
               style={{
                 borderColor: filtro === cat ? cfg.color : '#e5e7eb',
-                boxShadow: filtro === cat ? `0 0 0 2px ${cfg.color}30` : '0 1px 3px rgba(0,0,0,0.06)',
+                boxShadow:
+                  filtro === cat ? `0 0 0 2px ${cfg.color}30` : '0 1px 3px rgba(0,0,0,0.06)',
               }}
             >
               <div className="flex items-center justify-between mb-2">

@@ -94,7 +94,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (orderData.subtotal === 0 && orderData.items.length > 0) {
-      orderData.subtotal = orderData.items.reduce((s: number, i: OrderItem) => s + i.qty * i.price, 0);
+      orderData.subtotal = orderData.items.reduce(
+        (s: number, i: OrderItem) => s + i.qty * i.price,
+        0
+      );
     }
     if (orderData.total === 0) {
       orderData.total = orderData.subtotal + orderData.delivery_fee;
@@ -112,5 +115,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  return NextResponse.json({ status: 'Webhook endpoint activo', platforms: ['uber_eats', 'rappi', 'didi_food'] });
+  return NextResponse.json({
+    status: 'Webhook endpoint activo',
+    platforms: ['uber_eats', 'rappi', 'didi_food'],
+  });
 }
