@@ -3,6 +3,12 @@ import { imageHosts } from './image-hosts.config.mjs';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   productionBrowserSourceMaps: true,
+
+  // ESLint runs separately — never blocks production build
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
   distDir: process.env.DIST_DIR || '.next',
 
   images: {
