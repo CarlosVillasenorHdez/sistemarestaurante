@@ -48,12 +48,36 @@ const severityConfig: Record<
   AlertSeverity,
   { bg: string; border: string; dot: string; label: string; badgeBg: string; badgeText: string }
 > = {
-  alta: { bg: '#fef2f2', border: '#fca5a5', dot: '#ef4444', label: 'Alta', badgeBg: '#fee2e2', badgeText: '#991b1b' },
-  media: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b', label: 'Media', badgeBg: '#fef3c7', badgeText: '#92400e' },
-  baja: { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: 'Baja', badgeBg: '#dbeafe', badgeText: '#1e40af' },
+  alta: {
+    bg: '#fef2f2',
+    border: '#fca5a5',
+    dot: '#ef4444',
+    label: 'Alta',
+    badgeBg: '#fee2e2',
+    badgeText: '#991b1b',
+  },
+  media: {
+    bg: '#fffbeb',
+    border: '#fde68a',
+    dot: '#f59e0b',
+    label: 'Media',
+    badgeBg: '#fef3c7',
+    badgeText: '#92400e',
+  },
+  baja: {
+    bg: '#eff6ff',
+    border: '#93c5fd',
+    dot: '#3b82f6',
+    label: 'Baja',
+    badgeBg: '#dbeafe',
+    badgeText: '#1e40af',
+  },
 };
 
-const categoryConfig: Record<AlertCategory, { label: string; icon: React.ElementType; color: string }> = {
+const categoryConfig: Record<
+  AlertCategory,
+  { label: string; icon: React.ElementType; color: string }
+> = {
   inventario: { label: 'Inventario', icon: Package, color: '#8b5cf6' },
   ordenes: { label: 'Órdenes', icon: Clock, color: '#f59e0b' },
   gastos: { label: 'Gastos', icon: Receipt, color: '#ef4444' },
@@ -200,7 +224,10 @@ export default function AlarmasManagement() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: '#fef3c7' }}>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: '#fef3c7' }}
+            >
               <Bell size={20} style={{ color: '#d97706' }} />
             </div>
             <div>
@@ -237,11 +264,17 @@ export default function AlarmasManagement() {
               }}
             >
               <div className="flex items-center justify-between mb-2">
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${cfg.color}15` }}>
+                <div
+                  className="w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{ backgroundColor: `${cfg.color}15` }}
+                >
                   <CatIcon size={16} style={{ color: cfg.color }} />
                 </div>
                 {count > 0 && (
-                  <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+                  <span
+                    className="text-xs font-bold px-1.5 py-0.5 rounded-full"
+                    style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}
+                  >
                     {count}
                   </span>
                 )}
