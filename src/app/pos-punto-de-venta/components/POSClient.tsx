@@ -313,6 +313,12 @@ export default function POSClient() {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
           fetchTables();
         })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+          fetchTables();
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
+          fetchTables();
+        })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             retryCount = 0;
@@ -910,7 +916,7 @@ export default function POSClient() {
             <span className="mt-0.5">{tab.label}</span>
             {tab.badge && tab.badge > 0 && (
               <span className="absolute top-1 right-1/4 w-4 h-4 rounded-full text-xs font-bold flex items-center justify-center text-white"
-                style={{ backgroundColor: '#f59e0b', fontSize: '10px' }}>
+                style={{ backgroundColor: '#fde68a', fontSize: '10px' }}>
                 {tab.badge > 9 ? '9+' : tab.badge}
               </span>
             )}

@@ -108,10 +108,37 @@ export default function TableMap({
     });
   }, [editMode]);
 
+  const handleLayoutTouchStart = useCallback((e: React.TouchEvent, lt: LayoutTablePosition) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.touches[0];
+    setDragging({
+      tableNumber: lt.number,
+      startMouseX: touch.clientX,
+      startMouseY: touch.clientY,
+      origX: lt.x,
+      origY: lt.y,
+      currentX: lt.x,
+      currentY: lt.y,
+    });
+  }, [editMode]);
+
   const handleGridMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging) return;
     const dx = Math.round((e.clientX - dragging.startMouseX) / CELL);
     const dy = Math.round((e.clientY - dragging.startMouseY) / CELL);
+    const newX = Math.max(0, Math.min(GRID_COLS - 1, dragging.origX + dx));
+    const newY = Math.max(0, Math.min(GRID_ROWS - 1, dragging.origY + dy));
+    setDragging((prev) => prev ? { ...prev, currentX: newX, currentY: newY } : null);
+  }, [dragging]);
+
+  const handleGridTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const dx = Math.round((touch.clientX - dragging.startMouseX) / CELL);
+    const dy = Math.round((touch.clientY - dragging.startMouseY) / CELL);
     const newX = Math.max(0, Math.min(GRID_COLS - 1, dragging.origX + dx));
     const newY = Math.max(0, Math.min(GRID_ROWS - 1, dragging.origY + dy));
     setDragging((prev) => prev ? { ...prev, currentX: newX, currentY: newY } : null);
@@ -216,6 +243,9 @@ export default function TableMap({
             onMouseMove={handleGridMouseMove}
             onMouseUp={handleGridMouseUp}
             onMouseLeave={handleGridMouseUp}
+            onTouchMove={handleGridTouchMove}
+            onTouchEnd={handleGridMouseUp}
+            onTouchCancel={handleGridMouseUp}
           >
             {/* ── Architectural elements layer ── */}
             {layoutTables
@@ -327,6 +357,7 @@ export default function TableMap({
                   onMouseEnter={() => setHoveredTable(liveTable.id)}
                   onMouseLeave={() => setHoveredTable(null)}
                   onMouseDown={(e) => handleLayoutMouseDown(e, lt)}
+                  onTouchStart={(e) => handleLayoutTouchStart(e, lt)}
                   onClick={handleClick}
                 >
                   {/* Merge badge */}
