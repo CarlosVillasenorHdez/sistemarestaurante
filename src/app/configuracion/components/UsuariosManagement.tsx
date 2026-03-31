@@ -53,7 +53,7 @@ const PAGE_DEFINITIONS = [
 
 interface AppUser {
   id: string;
-  authUserId: string;
+  authUserId?: string;
   username: string;
   fullName: string;
   appRole: AppRole;
