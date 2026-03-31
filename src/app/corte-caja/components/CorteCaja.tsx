@@ -4,11 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import {
-  DollarSign, CreditCard, Banknote, TrendingUp, Clock, CheckCircle,
-  AlertTriangle, Plus, Minus, ChevronDown, ChevronUp, Printer, Lock,
-  Unlock, RefreshCw, Receipt, Users, ShoppingBag,
-} from 'lucide-react';
+import { CreditCard, Banknote, TrendingUp, Plus, Minus, ChevronDown, ChevronUp, Printer, Lock, Unlock, Receipt, Users, ShoppingBag,  } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
