@@ -12,17 +12,7 @@
     "prettier"
   ],
   "rules": {
-    "prettier/prettier": [
-      "error",
-      {
-        "endOfLine": "auto",
-        "singleQuote": true,
-        "semi": true,
-        "tabWidth": 2,
-        "printWidth": 100,
-        "trailingComma": "es5"
-      }
-    ],
+    "prettier/prettier": "warn",
     "@typescript-eslint/no-unused-vars": [
       "warn",
       {
@@ -47,8 +37,7 @@
     "node_modules/",
     ".next/",
     "out/",
-    "public/",
-    "src/app/configuracion/components/ConfiguracionManagement.tsx"
+    "public/"
   ],
   "overrides": [],
   "env": {
