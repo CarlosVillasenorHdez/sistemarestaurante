@@ -138,16 +138,17 @@ export default function MeseroMobileView() {
     const connect = () => {
       if (destroyed) return;
       channel = supabase
-        .channel(`mesero-tables-${Date.now()}`)
+        .channel(`mesero-tables-sync`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, (payload: any) => {
           loadData();
-          // If the currently-selected table was freed by another device, go back to table list
+          // If the currently-selected table was freed or taken by another device, update local state
           setSelectedTable(prev => {
             if (!prev) return prev;
             const changed = payload?.new ?? payload?.old;
             if (changed && changed.id === prev.id) {
               const newStatus = payload?.new?.status;
               const newOrderId = payload?.new?.current_order_id;
+              // Table was freed remotely — go back to table list
               if (newStatus === 'libre' || (!newOrderId && prev.currentOrderId)) {
                 setTimeout(() => {
                   setOrderItems([]);
@@ -157,11 +158,27 @@ export default function MeseroMobileView() {
                 }, 0);
                 return null;
               }
+              // Table was taken by someone else while we were viewing it
+              if (newStatus === 'ocupada' && payload?.new?.waiter && payload?.new?.waiter !== prev.waiter) {
+                setTimeout(() => {
+                  setOrderItems([]);
+                  setCurrentOrderId(null);
+                  setShowCart(false);
+                  setView('tables');
+                  toast.error(`${prev.name} fue tomada por ${payload.new.waiter}`);
+                }, 0);
+                return null;
+              }
             }
             return prev;
           });
         })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
+          loadData();
+          checkReadyOrders();
+        })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+          loadData();
           checkReadyOrders();
         })
         .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
