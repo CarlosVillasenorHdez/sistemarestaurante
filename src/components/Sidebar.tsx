@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import AppLogo from '@/components/ui/AppLogo';
-import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing, Scissors } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package, Users, BarChart3, Settings, ChevronLeft, ChevronRight, Bell, GitBranch, Receipt, ChefHat, Calendar, Truck, Star, Building2, Smartphone, UserCog, BellRing, Scissors, LogOut } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useFeatures, type Features } from '@/hooks/useFeatures';
@@ -83,6 +83,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { brandConfig } = useAuth();
   const supabase = createClient();
   const { features } = useFeatures();
+  const { appUser, signOut } = useAuth();
+  const router = useRouter();
 
   const [branchName, setBranchName] = useState<string>('Sucursal Centro');
   const [branches, setBranches] = useState<{id: string; name: string}[]>([]);
@@ -253,6 +255,27 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               <span className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.45)' }}>Admin</span>
             </div>
             <Bell size={14} style={{ color: 'rgba(255,255,255,0.4)' }} />
+          </div>
+        )}
+        {/* User info + logout */}
+        {appUser && (
+          <div className="px-2 mb-1">
+            {!collapsed && (
+              <div className="px-2 py-1.5 mb-1 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)' }}>
+                <p className="text-xs font-semibold text-white truncate">{appUser.fullName}</p>
+                <p className="text-xs capitalize" style={{ color: 'rgba(255,255,255,0.4)' }}>{appUser.appRole.replace('_', ' ')}</p>
+              </div>
+            )}
+            <button
+              onClick={async () => { await signOut(); router.replace('/login'); }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-all duration-150 hover:bg-red-500/10"
+              style={{ color: 'rgba(239,68,68,0.7)', justifyContent: collapsed ? 'center' : 'flex-start' }}
+              aria-label="Cerrar sesión"
+              title="Cerrar sesión"
+            >
+              <LogOut size={14} />
+              {!collapsed && <span>Cerrar sesión</span>}
+            </button>
           </div>
         )}
         <button
