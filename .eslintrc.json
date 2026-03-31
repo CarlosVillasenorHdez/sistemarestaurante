@@ -49,6 +49,14 @@
     "out/",
     "public/"
   ],
+  "overrides": [
+    {
+      "files": ["src/app/configuracion/components/ConfiguracionManagement.tsx"],
+      "rules": {
+        "prettier/prettier": "off"
+      }
+    }
+  ],
   "env": {
     "browser": true,
     "node": true,

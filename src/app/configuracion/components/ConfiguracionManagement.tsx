@@ -2,13 +2,12 @@
 
 import { toast } from 'sonner';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, Printer, Settings2, RotateCcw, AlertTriangle, Eye, EyeOff, Wifi, Usb, Bluetooth, LayoutGrid, Move, Trash2, Plus, XCircle, Zap, Star } from 'lucide-react';
+import { Store, Hash, Percent, Clock, Users, Save, Upload, CheckCircle, Shield, Printer, Settings2, RotateCcw, AlertTriangle, Eye, EyeOff, Wifi, Usb, Bluetooth, LayoutGrid, Move, Trash2, XCircle, Zap, Star } from 'lucide-react';
 import UsuariosManagement from './UsuariosManagement';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePrinter } from '@/hooks/usePrinter';
 import { DEFAULT_FEATURES, FEATURE_KEYS, Features, invalidateFeaturesCache } from '@/hooks/useFeatures';
-import Icon from '@/components/ui/AppIcon';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -781,7 +780,7 @@ export default function ConfiguracionManagement() {
                     )}
                   </div>
                   <div>
-                    <button onClick={() => logoInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    <button onClick={() => logoInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
                       <Upload size={15} /> Subir Logo
                     </button>
                     <p className="text-xs mt-2" style={{ color: 'rgba(255,255,255,0.35)' }}>PNG, JPG o SVG. Máx 2 MB.</p>
@@ -822,7 +821,7 @@ export default function ConfiguracionManagement() {
               <div className="rounded-xl p-5 mb-5" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.85)' }}>Tema de la aplicación</p>
+                    <p className="text-sm font-semibold" style={{ color: 'rgba(255,255,255,0.85)' }}>Tema de la aplicación</p>
                     <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>Afecta el fondo del sidebar y módulos internos</p>
                   </div>
                   <div className="flex gap-2">
@@ -1169,7 +1168,7 @@ export default function ConfiguracionManagement() {
                     <span className="text-sm font-medium" style={{ color: '#f1f5f9' }}>{h.dayLabel}</span>
                     <div>
                       <button onClick={() => updateHour(h.day, 'open', !h.open)} className="relative w-11 h-6 rounded-full transition-all duration-200" style={{ backgroundColor: h.open ? '#f59e0b' : '#2a3f5f' }}>
-                        <span className="absolute top-0.5 w-5 h-5 rounded-full transition-all duration-200" style={{ backgroundColor: '#fff', left: h.open ? '22px' : '2px' }} />
+                        <span className="absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200" style={{ backgroundColor: '#fff', left: h.open ? '22px' : '2px' }} />
                       </button>
                     </div>
                     <input type="time" value={h.from} disabled={!h.open} onChange={(e) => updateHour(h.day, 'from', e.target.value)} className="px-3 py-1.5 rounded-lg text-sm outline-none" style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: h.open ? '#f1f5f9' : 'rgba(255,255,255,0.3)', colorScheme: 'dark' }} />
@@ -1532,24 +1531,15 @@ export default function ConfiguracionManagement() {
                           }}
                           disabled={printer.status === 'connecting'}
                           className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
-                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                          <Usb size={15} /> Conectar USB
+                          style={{ backgroundColor: 'rgba(245,158,11,0.15)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}
+                          title="Imprime un ticket de prueba para verificar la configuración">
+                          {(testingPrinter || printer.status === 'printing')
+                            ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
+                            : <Printer size={15} />}
+                          {testingPrinter || printer.status === 'printing' ? 'Imprimiendo...' : 'Ticket de prueba'}
                         </button>
                       )
                     )}
-
-                    {/* ── Botón Ticket de Prueba — siempre visible ── */}
-                    <button
-                      onClick={handleTestPrinter}
-                      disabled={testingPrinter || printer.status === 'printing'}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50"
-                      style={{ backgroundColor: 'rgba(34,197,94,0.15)', color: '#4ade80', border: '1px solid rgba(34,197,94,0.3)' }}
-                      title="Imprime un ticket de prueba para verificar la configuración">
-                      {(testingPrinter || printer.status === 'printing')
-                        ? <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'rgba(255,255,255,0.8)' }} />
-                        : <Printer size={15} />}
-                      {testingPrinter || printer.status === 'printing' ? 'Imprimiendo...' : 'Ticket de prueba'}
-                    </button>
 
                     <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
                   </div>

@@ -1,11 +1,19 @@
 'use client';
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { Bell, Package, Clock, Receipt, RefreshCw, AlertTriangle, CheckCircle, Filter, ChevronRight,  } from 'lucide-react';
+import {
+  Bell,
+  Package,
+  Clock,
+  Receipt,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle,
+  Filter,
+  ChevronRight,
+} from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import Icon from '@/components/ui/AppIcon';
-
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -36,25 +44,28 @@ function timeAgo(isoString: string): string {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const severityConfig: Record<AlertSeverity, { bg: string; border: string; dot: string; label: string; badgeBg: string; badgeText: string }> = {
-  alta:  { bg: '#fef2f2', border: '#fca5a5', dot: '#ef4444', label: 'Alta',  badgeBg: '#fee2e2', badgeText: '#991b1b' },
+const severityConfig: Record<
+  AlertSeverity,
+  { bg: string; border: string; dot: string; label: string; badgeBg: string; badgeText: string }
+> = {
+  alta: { bg: '#fef2f2', border: '#fca5a5', dot: '#ef4444', label: 'Alta', badgeBg: '#fee2e2', badgeText: '#991b1b' },
   media: { bg: '#fffbeb', border: '#fde68a', dot: '#f59e0b', label: 'Media', badgeBg: '#fef3c7', badgeText: '#92400e' },
-  baja:  { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: 'Baja',  badgeBg: '#dbeafe', badgeText: '#1e40af' },
+  baja: { bg: '#eff6ff', border: '#93c5fd', dot: '#3b82f6', label: 'Baja', badgeBg: '#dbeafe', badgeText: '#1e40af' },
 };
 
 const categoryConfig: Record<AlertCategory, { label: string; icon: React.ElementType; color: string }> = {
-  inventario: { label: 'Inventario',  icon: Package,       color: '#8b5cf6' },
-  ordenes:    { label: 'Órdenes',     icon: Clock,         color: '#f59e0b' },
-  gastos:     { label: 'Gastos',      icon: Receipt,       color: '#ef4444' },
-  sistema:    { label: 'Sistema',     icon: AlertTriangle, color: '#6b7280' },
+  inventario: { label: 'Inventario', icon: Package, color: '#8b5cf6' },
+  ordenes: { label: 'Órdenes', icon: Clock, color: '#f59e0b' },
+  gastos: { label: 'Gastos', icon: Receipt, color: '#ef4444' },
+  sistema: { label: 'Sistema', icon: AlertTriangle, color: '#6b7280' },
 };
 
 const FILTER_TABS: { key: AlertCategory | 'todas'; label: string }[] = [
-  { key: 'todas',     label: 'Todas' },
+  { key: 'todas', label: 'Todas' },
   { key: 'inventario', label: 'Inventario' },
-  { key: 'ordenes',   label: 'Órdenes' },
-  { key: 'gastos',    label: 'Gastos' },
-  { key: 'sistema',   label: 'Sistema' },
+  { key: 'ordenes', label: 'Órdenes' },
+  { key: 'gastos', label: 'Gastos' },
+  { key: 'sistema', label: 'Sistema' },
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -70,93 +81,93 @@ export default function AlarmasManagement() {
     setLoading(true);
     const nuevas: Alerta[] = [];
     try {
+      // ── 1. Inventario: stock bajo mínimo ──────────────────────────────────────
+      const { data: ingredientes } = await supabase
+        .from('ingredients')
+        .select('id, name, stock, min_stock, unit, updated_at')
+        .filter('min_stock', 'gt', 0);
 
-    // ── 1. Inventario: stock bajo mínimo ──────────────────────────────────────
-    const { data: ingredientes } = await supabase
-      .from('ingredients')
-      .select('id, name, stock, min_stock, unit, updated_at')
-      .filter('min_stock', 'gt', 0);
-
-    if (ingredientes) {
-      ingredientes
-        .filter((i) => Number(i.stock) < Number(i.min_stock))
-        .forEach((i) => {
-          const pct = Number(i.min_stock) > 0 ? (Number(i.stock) / Number(i.min_stock)) * 100 : 0;
-          nuevas.push({
-            id: `stock-${i.id}`,
-            categoria: 'inventario',
-            severidad: pct < 30 ? 'alta' : 'media',
-            titulo: `${i.name} — stock bajo mínimo`,
-            detalle: `Stock actual: ${Number(i.stock).toFixed(1)} ${i.unit} · Mínimo requerido: ${Number(i.min_stock).toFixed(1)} ${i.unit} (${pct.toFixed(0)}%)`,
-            tiempo: timeAgo(i.updated_at || new Date().toISOString()),
-            accion: { label: 'Ir a Inventario', href: '/inventario' },
+      if (ingredientes) {
+        ingredientes
+          .filter((i) => Number(i.stock) < Number(i.min_stock))
+          .forEach((i) => {
+            const pct = Number(i.min_stock) > 0 ? (Number(i.stock) / Number(i.min_stock)) * 100 : 0;
+            nuevas.push({
+              id: `stock-${i.id}`,
+              categoria: 'inventario',
+              severidad: pct < 30 ? 'alta' : 'media',
+              titulo: `${i.name} — stock bajo mínimo`,
+              detalle: `Stock actual: ${Number(i.stock).toFixed(1)} ${i.unit} · Mínimo requerido: ${Number(i.min_stock).toFixed(1)} ${i.unit} (${pct.toFixed(0)}%)`,
+              tiempo: timeAgo(i.updated_at || new Date().toISOString()),
+              accion: { label: 'Ir a Inventario', href: '/inventario' },
+            });
           });
+      }
+
+      // ── 2. Órdenes abiertas con espera larga ──────────────────────────────────
+      const { data: ordenes } = await supabase
+        .from('orders')
+        .select('id, mesa, created_at, status')
+        .in('status', ['abierta', 'preparacion', 'lista'])
+        .order('created_at', { ascending: true })
+        .limit(20);
+
+      if (ordenes) {
+        ordenes.forEach((o) => {
+          const diffMin = Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000);
+          if (diffMin >= 30) {
+            nuevas.push({
+              id: `orden-${o.id}`,
+              categoria: 'ordenes',
+              severidad: diffMin >= 60 ? 'alta' : 'media',
+              titulo: `${o.mesa || `Orden #${o.id}`} — espera prolongada`,
+              detalle: `Lleva ${diffMin} minutos en estado "${o.status}". Orden ID: ${o.id}`,
+              tiempo: timeAgo(o.created_at),
+              accion: { label: 'Ver Órdenes', href: '/orders-management' },
+            });
+          }
         });
-    }
+      }
 
-    // ── 2. Órdenes abiertas con espera larga ──────────────────────────────────
-    const { data: ordenes } = await supabase
-      .from('orders')
-      .select('id, mesa, created_at, status')
-      .in('status', ['abierta', 'preparacion', 'lista'])
-      .order('created_at', { ascending: true })
-      .limit(20);
+      // ── 3. Gastos pendientes de pago ──────────────────────────────────────────
+      const { data: gastos } = await supabase
+        .from('gastos_recurrentes')
+        .select('id, nombre, monto, proximo_pago, estado, categoria')
+        .eq('estado', 'pendiente')
+        .eq('activo', true)
+        .order('proximo_pago', { ascending: true })
+        .limit(20);
 
-    if (ordenes) {
-      ordenes.forEach((o) => {
-        const diffMin = Math.floor((Date.now() - new Date(o.created_at).getTime()) / 60000);
-        if (diffMin >= 30) {
-          nuevas.push({
-            id: `orden-${o.id}`,
-            categoria: 'ordenes',
-            severidad: diffMin >= 60 ? 'alta' : 'media',
-            titulo: `${o.mesa || `Orden #${o.id}`} — espera prolongada`,
-            detalle: `Lleva ${diffMin} minutos en estado "${o.status}". Orden ID: ${o.id}`,
-            tiempo: timeAgo(o.created_at),
-            accion: { label: 'Ver Órdenes', href: '/orders-management' },
-          });
-        }
-      });
-    }
+      if (gastos) {
+        const hoy = new Date();
+        gastos.forEach((g) => {
+          if (!g.proximo_pago) return;
+          const fechaPago = new Date(g.proximo_pago);
+          const diffDias = Math.floor((fechaPago.getTime() - hoy.getTime()) / 86400000);
+          if (diffDias <= 7) {
+            nuevas.push({
+              id: `gasto-${g.id}`,
+              categoria: 'gastos',
+              severidad: diffDias <= 0 ? 'alta' : diffDias <= 3 ? 'media' : 'baja',
+              titulo: `${g.nombre} — pago pendiente`,
+              detalle:
+                diffDias <= 0
+                  ? `Vencido hace ${Math.abs(diffDias)} día${Math.abs(diffDias) !== 1 ? 's' : ''} · $${Number(g.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                  : `Vence en ${diffDias} día${diffDias !== 1 ? 's' : ''} · $${Number(g.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`,
+              tiempo: diffDias <= 0 ? 'Vencido' : `En ${diffDias} día${diffDias !== 1 ? 's' : ''}`,
+              accion: { label: 'Ir a Gastos', href: '/gastos' },
+            });
+          }
+        });
+      }
 
-    // ── 3. Gastos pendientes de pago ──────────────────────────────────────────
-    const { data: gastos } = await supabase
-      .from('gastos_recurrentes')
-      .select('id, nombre, monto, proximo_pago, estado, categoria')
-      .eq('estado', 'pendiente')
-      .eq('activo', true)
-      .order('proximo_pago', { ascending: true })
-      .limit(20);
+      // ── Ordenar: alta → media → baja ─────────────────────────────────────────
+      const orden: Record<AlertSeverity, number> = { alta: 0, media: 1, baja: 2 };
+      nuevas.sort((a, b) => orden[a.severidad] - orden[b.severidad]);
 
-    if (gastos) {
-      const hoy = new Date();
-      gastos.forEach((g) => {
-        if (!g.proximo_pago) return;
-        const fechaPago = new Date(g.proximo_pago);
-        const diffDias = Math.floor((fechaPago.getTime() - hoy.getTime()) / 86400000);
-        if (diffDias <= 7) {
-          nuevas.push({
-            id: `gasto-${g.id}`,
-            categoria: 'gastos',
-            severidad: diffDias <= 0 ? 'alta' : diffDias <= 3 ? 'media' : 'baja',
-            titulo: `${g.nombre} — pago pendiente`,
-            detalle: diffDias <= 0
-              ? `Vencido hace ${Math.abs(diffDias)} día${Math.abs(diffDias) !== 1 ? 's' : ''} · $${Number(g.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-              : `Vence en ${diffDias} día${diffDias !== 1 ? 's' : ''} · $${Number(g.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`,
-            tiempo: diffDias <= 0 ? 'Vencido' : `En ${diffDias} día${diffDias !== 1 ? 's' : ''}`,
-            accion: { label: 'Ir a Gastos', href: '/gastos' },
-          });
-        }
-      });
-    }
-
-    // ── Ordenar: alta → media → baja ─────────────────────────────────────────
-    const orden: Record<AlertSeverity, number> = { alta: 0, media: 1, baja: 2 };
-    nuevas.sort((a, b) => orden[a.severidad] - orden[b.severidad]);
-
-    setAlertas(nuevas);
-    } catch (err: any) {
-      console.error('[Alarmas] Error al cargar alertas:', err?.message);
+      setAlertas(nuevas);
+    } catch (err: unknown) {
+      console.error('[Alarmas] Error al cargar alertas:', (err as Error)?.message);
     } finally {
       setLoading(false);
     }
@@ -176,9 +187,9 @@ export default function AlarmasManagement() {
 
   const conteosPorCategoria: Record<AlertCategory, number> = {
     inventario: alertas.filter((a) => a.categoria === 'inventario').length,
-    ordenes:    alertas.filter((a) => a.categoria === 'ordenes').length,
-    gastos:     alertas.filter((a) => a.categoria === 'gastos').length,
-    sistema:    alertas.filter((a) => a.categoria === 'sistema').length,
+    ordenes: alertas.filter((a) => a.categoria === 'ordenes').length,
+    gastos: alertas.filter((a) => a.categoria === 'gastos').length,
+    sistema: alertas.filter((a) => a.categoria === 'sistema').length,
   };
 
   const altasCount = alertas.filter((a) => a.severidad === 'alta').length;
@@ -213,7 +224,7 @@ export default function AlarmasManagement() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {(Object.keys(categoryConfig) as AlertCategory[]).map((cat) => {
           const cfg = categoryConfig[cat];
-          const Icon = cfg.icon;
+          const CatIcon = cfg.icon;
           const count = conteosPorCategoria[cat];
           return (
             <button
@@ -227,7 +238,7 @@ export default function AlarmasManagement() {
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${cfg.color}15` }}>
-                  <Icon size={16} style={{ color: cfg.color }} />
+                  <CatIcon size={16} style={{ color: cfg.color }} />
                 </div>
                 {count > 0 && (
                   <span className="text-xs font-bold px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
@@ -295,7 +306,7 @@ export default function AlarmasManagement() {
       {/* Alerts List */}
       <div className="bg-white rounded-xl border overflow-hidden" style={{ borderColor: '#e5e7eb', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         {loading ? (
-          <div className="divide-y" style={{}}>
+          <div className="divide-y">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-start gap-4 px-6 py-4 animate-pulse">
                 <div className="w-10 h-10 rounded-xl bg-gray-100 flex-shrink-0" />
@@ -313,7 +324,7 @@ export default function AlarmasManagement() {
             </div>
             <p className="text-base font-semibold text-gray-700">Sin alertas activas</p>
             <p className="text-sm text-gray-400 mt-1">
-              {filtro !== 'todas' || soloAltas ?'No hay alertas con los filtros seleccionados' :'Todo el sistema está funcionando correctamente'}
+              {filtro !== 'todas' || soloAltas ? 'No hay alertas con los filtros seleccionados' : 'Todo el sistema está funcionando correctamente'}
             </p>
           </div>
         ) : (
@@ -323,10 +334,7 @@ export default function AlarmasManagement() {
               const cat = categoryConfig[alerta.categoria];
               const CatIcon = cat.icon;
               return (
-                <div
-                  key={alerta.id}
-                  className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors"
-                >
+                <div key={alerta.id} className="flex items-start gap-4 px-6 py-4 hover:bg-gray-50 transition-colors">
                   {/* Icon */}
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
