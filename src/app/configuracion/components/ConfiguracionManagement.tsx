@@ -279,7 +279,7 @@ export default function ConfiguracionManagement() {
 
         // Load loyalty config
         if (map['business_hours']) {
-          try { setHours(JSON.parse(map['business_hours'])); } catch {}
+          try { setHours(JSON.parse(map['business_hours'])); } catch (_e) { /* ignore parse error */ }
         }
         if (map['loyalty_program_name'])    setLoyaltyName(map['loyalty_program_name']);
         if (map['loyalty_pesos_per_point']) setLoyaltyPesosPerPoint(Number(map['loyalty_pesos_per_point']));
@@ -288,7 +288,7 @@ export default function ConfiguracionManagement() {
         if (map['loyalty_min_redeem'])      setLoyaltyMinRedeem(Number(map['loyalty_min_redeem']));
         if (map['loyalty_max_redeem_pct'])  setLoyaltyMaxRedeemPct(Number(map['loyalty_max_redeem_pct']));
         if (map['loyalty_levels']) {
-          try { setLoyaltyLevels(JSON.parse(map['loyalty_levels'])); } catch {}
+          try { setLoyaltyLevels(JSON.parse(map['loyalty_levels'])); } catch (_e) { /* ignore parse error */ }
         }
         if (map.iva_percent) {
           const iva = parseFloat(map.iva_percent);

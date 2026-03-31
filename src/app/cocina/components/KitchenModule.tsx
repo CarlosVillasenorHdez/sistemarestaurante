@@ -255,7 +255,7 @@ export default function KitchenModule() {
   const [readyItems, setReadyItems] = useState<Set<string>>(new Set());
   const toggleReadyItem = (key: string) => setReadyItems(prev => {
     const next = new Set(prev);
-    next.has(key) ? next.delete(key) : next.add(key);
+    if (next.has(key)) { next.delete(key); } else { next.add(key); }
     return next;
   });
   const [loading, setLoading] = useState(true);

@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const platform = req.nextUrl.searchParams.get('platform') || 'manual';
 
     // Normalize payload from different platforms
-    let orderData: any = {
+    const orderData: any = {
       platform,
       external_id: '',
       customer_name: 'Cliente Delivery',
