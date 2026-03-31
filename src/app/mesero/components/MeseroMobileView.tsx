@@ -25,7 +25,7 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 export default function MeseroMobileView() {
   const supabase = createClient();
   const { appUser } = useAuth();
-  const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen, closeOrder } = useOrderFlow();
+  const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen, closeOrder, cancelOrder } = useOrderFlow();
   const { features } = useFeatures();
 
   const [tables, setTables] = useState<Table[]>([]);
@@ -50,6 +50,7 @@ export default function MeseroMobileView() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [kitchenNote, setKitchenNote] = useState('');
   const [sendingNote, setSendingNote] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     supabase
@@ -339,6 +340,26 @@ export default function MeseroMobileView() {
     }
   };
 
+  // ─── Cancel table ─────────────────────────────────────────────────────────
+
+  const handleCancelTable = () => {
+    setShowCancelConfirm(true);
+  };
+
+  const executeCancelTable = async () => {
+    if (!selectedTable) return;
+    setShowCancelConfirm(false);
+    const ok = await cancelOrder(currentOrderId, [selectedTable.id]);
+    if (!ok) return;
+    setOrderItems([]);
+    setCurrentOrderId(null);
+    setSelectedTable(null);
+    setShowCart(false);
+    setView('tables');
+    await loadData();
+    toast.success(`${selectedTable.name} liberada`);
+  };
+
   const filteredDishes = dishes.filter(d => {
     const matchCat = category === 'Todos' || d.category === category;
     const matchSearch = !search || d.name.toLowerCase().includes(search.toLowerCase());
@@ -461,6 +482,16 @@ export default function MeseroMobileView() {
               <h3 className="font-bold text-gray-900">{selectedTable.name}</h3>
               <p className="text-xs text-gray-500">Cap. {selectedTable.capacity} personas</p>
             </div>
+            {selectedTable.currentOrderId && (
+              <button
+                onClick={handleCancelTable}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors active:scale-95"
+                style={{ backgroundColor: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}
+                title="Cancelar y liberar mesa sin cobrar"
+              >
+                <X size={14} /> Cancelar mesa
+              </button>
+            )}
             <button
               onClick={() => setShowCart(true)}
               className="relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-white"
@@ -708,6 +739,45 @@ export default function MeseroMobileView() {
           onClose={() => setShowPayment(false)}
           onComplete={handlePaymentComplete}
         />
+      )}
+
+      {/* ── Confirm cancel table ── */}
+      {showCancelConfirm && selectedTable && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mesero-cancel-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+        >
+          <div className="w-full max-w-sm bg-white rounded-2xl p-6 shadow-2xl">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 bg-red-50">
+              <span className="text-2xl">🗑️</span>
+            </div>
+            <h3 id="mesero-cancel-title" className="text-base font-bold text-center text-gray-900 mb-2">
+              ¿Cancelar orden?
+            </h3>
+            <p className="text-sm text-center text-gray-500 mb-5">
+              Se liberará <strong className="text-gray-800">{selectedTable.name}</strong> y se eliminarán todos los artículos sin cobrar.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                aria-label="Mantener la orden"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700"
+              >
+                Mantener orden
+              </button>
+              <button
+                onClick={executeCancelTable}
+                aria-label="Confirmar cancelar y liberar mesa"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 text-white"
+              >
+                Sí, cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
