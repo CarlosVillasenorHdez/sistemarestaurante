@@ -8,6 +8,7 @@ import { LayoutDashboard, ShoppingCart, UtensilsCrossed, ClipboardList, Package,
 import { useAuth } from '@/contexts/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { useFeatures, type Features } from '@/hooks/useFeatures';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
 import Icon from '@/components/ui/AppIcon';
 
 
@@ -83,6 +84,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { brandConfig } = useAuth();
   const supabase = createClient();
   const { features } = useFeatures();
+  const { canAccess } = useRolePermissions();
   const { appUser, signOut } = useAuth();
   const router = useRouter();
 
@@ -212,6 +214,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             {group.items.map((item) => {
               const Icon = item.icon;
               if ((item as any).feature && !features[(item as any).feature as keyof Features]) return null;
+              if (!canAccess(item.pageKey)) return null;
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
               const badge = item.pageKey === 'orders'
                 ? (openOrdersCount > 0 ? openOrdersCount : undefined)
