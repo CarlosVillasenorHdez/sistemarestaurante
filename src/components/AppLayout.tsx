@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import { useDevice } from '@/hooks/useDevice';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
@@ -12,6 +14,26 @@ interface AppLayoutProps {
 }
 
 export default function AppLayout({ children, title, subtitle }: AppLayoutProps) {
+  const { appUser, loading: authLoading } = useAuth();
+  const router = useRouter();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !appUser) {
+      router.replace('/login');
+    }
+  }, [appUser, authLoading, router]);
+
+  // Show spinner while checking auth
+  if (authLoading || !appUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0f1923' }}>
+        <div className="w-8 h-8 rounded-full border-2 animate-spin"
+          style={{ borderColor: 'rgba(245,158,11,0.3)', borderTopColor: '#f59e0b' }} />
+      </div>
+    );
+  }
+
   const device = useDevice();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
