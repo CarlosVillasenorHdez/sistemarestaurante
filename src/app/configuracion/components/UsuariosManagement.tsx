@@ -172,7 +172,7 @@ export default function UsuariosManagement() {
     setFormError('');
     if (!form.employeeId) { setFormError('Selecciona un empleado del personal'); return; }
     if (!form.username.trim()) { setFormError('El nombre de usuario es requerido'); return; }
-    if (form.password.length < 4) { setFormError('La contraseña debe tener al menos 4 caracteres'); return; }
+    if (form.password.length < 4) { setFormError('El PIN debe tener al menos 4 caracteres'); return; }
     setSaving(true);
     try {
       await createUser(form.username, form.password, form.fullName, form.appRole);
@@ -188,21 +188,31 @@ export default function UsuariosManagement() {
     }
   }
 
-  async function handleChangePassword() {
+  async function handleChangePin() {
     if (!selectedUser || newPassword.length < 4) return;
     setSaving(true);
     try {
-      const { error } = await supabase.functions.invoke('update-user-password', {
-        body: { auth_user_id: selectedUser.authUserId, new_password: newPassword },
-      });
+      // Hash PIN with SHA-256 before saving (matches AuthContext)
+      const encoder = new TextEncoder();
+      const buf = await crypto.subtle.digest(
+        'SHA-256',
+        encoder.encode(newPassword + 'aldente_salt_2024')
+      );
+      const hashed = Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+      const { error } = await supabase
+        .from('app_users')
+        .update({ pin: hashed })
+        .eq('id', selectedUser.id);
       if (error) throw error;
       setPwModalOpen(false);
       setNewPassword('');
       setSelectedUser(null);
-      setSuccessMsg('Contraseña actualizada');
+      setSuccessMsg('PIN actualizado correctamente');
       setTimeout(() => setSuccessMsg(''), 3000);
-    } catch (e: any) {
-      setFormError(e.message || 'Error al cambiar contraseña');
+    } catch (e: unknown) {
+      setFormError(e instanceof Error ? e.message : 'Error al cambiar PIN');
     } finally {
       setSaving(false);
     }
@@ -304,12 +314,12 @@ export default function UsuariosManagement() {
           {/* Info note */}
           <div className="mx-6 mt-4 mb-2 flex items-start gap-2 px-4 py-3 rounded-xl text-xs" style={{ backgroundColor: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', color: 'rgba(255,255,255,0.55)' }}>
             <Users size={13} className="mt-0.5 flex-shrink-0" style={{ color: '#3b82f6' }} />
-            <span>Los usuarios se crean a partir del personal registrado en la sección <strong className="text-white">Personal</strong>. Aquí puedes gestionar su acceso al sistema (login y contraseña).</span>
+            <span>Los usuarios se crean a partir del personal registrado en la sección <strong className="text-white">Personal</strong>. Aquí puedes gestionar su acceso al sistema (login y PIN).</span>
           </div>
           <table className="w-full">
             <thead className="sticky top-0 z-10" style={{ backgroundColor: '#132240' }}>
               <tr className="border-b" style={{ borderColor: '#243f72' }}>
-                {['Empleado', 'Usuario (login)', 'Perfil', 'Contraseña'].map((h) => (
+                {['Empleado', 'Usuario (login)', 'Perfil', 'PIN'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{h}</th>
                 ))}
               </tr>
@@ -353,9 +363,9 @@ export default function UsuariosManagement() {
                         onClick={() => { setSelectedUser(u); setNewPassword(''); setFormError(''); setPwModalOpen(true); }}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all hover:brightness-110"
                         style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.25)' }}
-                        title="Cambiar contraseña"
+                        title="Cambiar PIN"
                       >
-                        <Pencil size={12} /> Cambiar contraseña
+                        <Pencil size={12} /> Cambiar PIN
                       </button>
                     </td>
                   </tr>
@@ -600,7 +610,7 @@ export default function UsuariosManagement() {
             <div className="flex gap-3">
               <button onClick={() => setPwModalOpen(false)} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>Cancelar</button>
               <button
-                onClick={handleChangePassword}
+                onClick={handleChangePin}
                 disabled={saving || newPassword.length < 4}
                 className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
                 style={{ backgroundColor: '#f59e0b', color: '#1B3A6B', opacity: newPassword.length < 4 ? 0.5 : 1 }}

@@ -86,6 +86,16 @@ function clearSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
+
+// ── Simple PIN hash using Web Crypto (no external deps) ─────────────────────
+async function hashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin + 'aldente_salt_2024');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,7 +170,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (error || !data) return { error: 'Usuario no encontrado' };
       if (!data.is_active) return { error: 'Usuario inactivo. Contacta al administrador.' };
-      if (data.pin !== pin) return { error: 'PIN incorrecto' };
+      // Support both plain text (legacy) and SHA-256 hashed PINs
+      const hashed = await hashPin(pin);
+      const pinMatch = data.pin === pin || data.pin === hashed;
+      if (!pinMatch) return { error: 'PIN incorrecto' };
 
       const user: AppUser = {
         id: data.id,

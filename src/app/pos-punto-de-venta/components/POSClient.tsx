@@ -79,7 +79,7 @@ function MenuSkeleton() {
 }
 
 export default function POSClient() {
-  const { } = useAuth();
+  const { appUser } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
@@ -454,7 +454,7 @@ export default function POSClient() {
 
     const orderId = `ORD-${Date.now()}`;
     const now = new Date().toISOString();
-    const waiterName = 'Administrador';
+    const waiterName = appUser?.fullName ?? 'Administrador';
 
     const { error: orderErr } = await supabase.from('orders').insert({
       id: orderId,
@@ -702,7 +702,7 @@ export default function POSClient() {
       items: flowItems,
       subtotal, discountAmount, iva, total,
       payMethod: method,
-      waiterName: selectedTable.waiter || 'Administrador',
+      waiterName: selectedTable.waiter || appUser?.fullName || 'Administrador',
       branchName,
       openedAt: selectedTable.openedAt ?? null,
       loyaltyCustomerId: loyaltyCustomerId ?? null,
@@ -937,7 +937,7 @@ export default function POSClient() {
           }))}
           orderNumber={selectedTable?.currentOrderId ?? undefined}
           mesa={selectedTable?.name}
-          mesero={selectedTable?.waiter || 'Administrador'}
+          mesero={selectedTable?.waiter || appUser?.fullName || 'Administrador'}
           restaurantName={restaurantName || branchName}
           branchName={branchName}
           printerConfig={printerConfigData}
