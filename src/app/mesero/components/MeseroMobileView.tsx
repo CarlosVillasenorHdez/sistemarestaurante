@@ -24,7 +24,7 @@ const CATEGORIES = ['Todos', 'Entradas', 'Platos Fuertes', 'Postres', 'Bebidas',
 
 export default function MeseroMobileView() {
   const supabase = createClient();
-  const { } = useAuth();
+  const { appUser } = useAuth();
   const { ensureOpenOrder, syncItems, loadOrderItems, sendToKitchen, closeOrder } = useOrderFlow();
   const { features } = useFeatures();
 
@@ -42,7 +42,7 @@ export default function MeseroMobileView() {
   const [readyOrders, setReadyOrders] = useState<string[]>([]);
   const prevReadyRef = React.useRef<string[]>([]);
   const [branchName, setBranchName] = useState('Sucursal Principal');
-  const [myName, setMyName] = useState('Mesero');
+  const [myName, setMyName] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
@@ -60,12 +60,16 @@ export default function MeseroMobileView() {
       .then(({ data }) => { if (data?.config_value) setBranchName(data.config_value); });
   }, [supabase]);
 
-  // TODO: replace with real auth user name when login is implemented
-  // For now reads from localStorage so different devices can simulate different waiters
+  // Set name from authenticated session
   useEffect(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('aldente_waiter_name') : null;
-    if (saved) setMyName(saved);
-  }, []);
+    if (appUser?.fullName) {
+      setMyName(appUser.fullName);
+    } else {
+      // Fallback: read from localStorage (allows override on shared devices)
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('aldente_waiter_name') : null;
+      setMyName(saved || 'Mesero');
+    }
+  }, [appUser]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -362,7 +366,7 @@ export default function MeseroMobileView() {
                 style={{ backgroundColor: '#1B3A6B', color: '#f59e0b' }}>
                 👤 {myName}
               </span>
-              {editingName ? (
+              {!appUser && editingName ? (
                 <form onSubmit={e => {
                   e.preventDefault();
                   if (nameInput.trim()) {
@@ -384,7 +388,7 @@ export default function MeseroMobileView() {
                   <button type="submit" className="text-xs text-green-600 font-semibold px-1" aria-label="Guardar nombre">✓</button>
                   <button type="button" onClick={() => setEditingName(false)} className="text-xs text-gray-400 px-1" aria-label="Cancelar">✕</button>
                 </form>
-              ) : (
+              ) : !appUser ? (
                 <button
                   onClick={() => { setNameInput(myName); setEditingName(true); }}
                   aria-label="Cambiar nombre del mesero"
@@ -392,7 +396,7 @@ export default function MeseroMobileView() {
                 >
                   cambiar
                 </button>
-              )}
+              ) : null}
             </div>
           </div>
 
