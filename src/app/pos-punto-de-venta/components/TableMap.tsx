@@ -36,6 +36,7 @@ interface TableMapProps {
   mergeSelection?: string[];
   onUnmerge?: (table: Table) => void;
   reservedTables?: string[];
+  currentWaiter?: string;
   // Layout props
   layoutTables?: LayoutTablePosition[];
   onMoveTable?: (tableNumber: number, newX: number, newY: number) => void;
@@ -61,6 +62,7 @@ export default function TableMap({
   mergeSelection = [],
   onUnmerge,
   reservedTables = [],
+  currentWaiter,
   layoutTables,
   onMoveTable,
   onDeleteTable,
@@ -108,10 +110,37 @@ export default function TableMap({
     });
   }, [editMode]);
 
+  const handleLayoutTouchStart = useCallback((e: React.TouchEvent, lt: LayoutTablePosition) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const touch = e.touches[0];
+    setDragging({
+      tableNumber: lt.number,
+      startMouseX: touch.clientX,
+      startMouseY: touch.clientY,
+      origX: lt.x,
+      origY: lt.y,
+      currentX: lt.x,
+      currentY: lt.y,
+    });
+  }, [editMode]);
+
   const handleGridMouseMove = useCallback((e: React.MouseEvent) => {
     if (!dragging) return;
     const dx = Math.round((e.clientX - dragging.startMouseX) / CELL);
     const dy = Math.round((e.clientY - dragging.startMouseY) / CELL);
+    const newX = Math.max(0, Math.min(GRID_COLS - 1, dragging.origX + dx));
+    const newY = Math.max(0, Math.min(GRID_ROWS - 1, dragging.origY + dy));
+    setDragging((prev) => prev ? { ...prev, currentX: newX, currentY: newY } : null);
+  }, [dragging]);
+
+  const handleGridTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const dx = Math.round((touch.clientX - dragging.startMouseX) / CELL);
+    const dy = Math.round((touch.clientY - dragging.startMouseY) / CELL);
     const newX = Math.max(0, Math.min(GRID_COLS - 1, dragging.origX + dx));
     const newY = Math.max(0, Math.min(GRID_ROWS - 1, dragging.origY + dy));
     setDragging((prev) => prev ? { ...prev, currentX: newX, currentY: newY } : null);
@@ -216,6 +245,9 @@ export default function TableMap({
             onMouseMove={handleGridMouseMove}
             onMouseUp={handleGridMouseUp}
             onMouseLeave={handleGridMouseUp}
+            onTouchMove={handleGridTouchMove}
+            onTouchEnd={handleGridMouseUp}
+            onTouchCancel={handleGridMouseUp}
           >
             {/* ── Architectural elements layer ── */}
             {layoutTables
@@ -279,12 +311,15 @@ export default function TableMap({
               const isMerged = !!liveTable.mergeGroupId;
               const isHovered = hoveredTable === liveTable.id;
               const mergeGroupSize = isMerged ? (mergeGroups[liveTable.mergeGroupId!]?.length ?? 1) : 0;
+              // Waiter blocking: table occupied by a different waiter
+              const isOtherWaiter = liveTable.status === 'ocupada' && !!liveTable.waiter && !!currentWaiter && liveTable.waiter !== currentWaiter;
 
               // Status colors
               let bgColor = '#dcfce7';
               let borderColor = '#86efac';
               let textColor = '#166534';
-              if (isMerged) { bgColor = '#ede9fe'; borderColor = '#c4b5fd'; textColor = '#6d28d9'; }
+              if (isOtherWaiter) { bgColor = '#f3f4f6'; borderColor = '#d1d5db'; textColor = '#6b7280'; }
+              else if (isMerged) { bgColor = '#ede9fe'; borderColor = '#c4b5fd'; textColor = '#6d28d9'; }
               else if (liveTable.status === 'ocupada') { bgColor = '#fee2e2'; borderColor = '#fca5a5'; textColor = '#991b1b'; }
               else if (liveTable.status === 'espera') { bgColor = '#fef3c7'; borderColor = '#fcd34d'; textColor = '#92400e'; }
 
@@ -318,19 +353,27 @@ export default function TableMap({
                     backgroundColor: bgColor,
                     border: `2px solid ${borderColor}`,
                     borderRadius: lt.shape === 'round' ? '50%' : '10px',
-                    cursor: editMode ? 'grab' : 'pointer',
+                    cursor: editMode ? 'grab' : isOtherWaiter ? 'not-allowed' : 'pointer',
                     zIndex: isDraggingThis ? 20 : isSelected ? 10 : 1,
                     boxShadow: isSelected ? `0 0 0 3px rgba(245,158,11,0.35)` : isMergeSelected ? '0 0 0 3px rgba(59,130,246,0.35)' : isDraggingThis ? '0 4px 16px rgba(0,0,0,0.18)' : 'none',
-                    opacity: isDraggingThis ? 0.85 : 1,
+                    opacity: isDraggingThis ? 0.85 : isOtherWaiter ? 0.6 : 1,
                     userSelect: 'none',
                   }}
                   onMouseEnter={() => setHoveredTable(liveTable.id)}
                   onMouseLeave={() => setHoveredTable(null)}
                   onMouseDown={(e) => handleLayoutMouseDown(e, lt)}
+                  onTouchStart={(e) => handleLayoutTouchStart(e, lt)}
                   onClick={handleClick}
                 >
+                  {/* Lock icon for other waiter's tables */}
+                  {isOtherWaiter && (
+                    <div className="absolute top-1 right-1 text-gray-400 z-10">
+                      <Lock size={10} />
+                    </div>
+                  )}
+
                   {/* Merge badge */}
-                  {isMerged && (
+                  {isMerged && !isOtherWaiter && (
                     <div className="absolute top-1 right-1 flex items-center gap-0.5 px-1 py-0.5 rounded-full z-10" style={{ backgroundColor: 'rgba(168,85,247,0.2)', fontSize: '8px', color: '#7c3aed' }}>
                       <Link2 size={7} />
                       <span className="font-bold">{mergeGroupSize}</span>
@@ -338,10 +381,10 @@ export default function TableMap({
                   )}
 
                   {/* Unmerge button */}
-                  {isMerged && isHovered && !mergeMode && !editMode && onUnmerge && (
+                  {isMerged && isHovered && !mergeMode && !editMode && !isOtherWaiter && onUnmerge && (
                     <button
                       onClick={(e) => { e.stopPropagation(); onUnmerge(liveTable); }}
-                      className="absolute top-1 left-1 w-5 h-5 rounded-full flex items-center justify-center z-20"
+                      className="absolute top-1 left-1 w-5 h-5 rounded-full flex items-center justify-center z-20 transition-colors"
                       style={{ backgroundColor: 'rgba(239,68,68,0.8)' }}
                       title="Separar mesas"
                     >
@@ -374,35 +417,49 @@ export default function TableMap({
                     <Move size={10} className="absolute top-1 left-1 opacity-30" style={{ color: textColor }} />
                   )}
 
-                  <div className="text-lg font-bold leading-none mb-0.5" style={{ color: textColor }}>{liveTable.number}</div>
-                  <div className="text-xs font-medium text-center leading-tight truncate px-1" style={{ color: textColor, fontSize: '10px', maxWidth: '90%' }}>
-                    {liveTable.name.replace('Mesa ', '').length > 6 ? liveTable.name.replace('Mesa ', 'M.') : liveTable.name}
-                  </div>
-                  <div className="flex items-center gap-0.5 mt-0.5" style={{ color: textColor, opacity: 0.7 }}>
-                    <Users size={9} />
-                    <span style={{ fontSize: '9px' }}>{liveTable.capacity}</span>
-                  </div>
+                  {isOtherWaiter ? (
+                    <>
+                      <div className="text-lg leading-none mb-0.5">🔒</div>
+                      <div className="text-xs font-medium text-center leading-tight truncate px-1" style={{ color: textColor, fontSize: '10px', maxWidth: '90%' }}>
+                        {liveTable.name.replace('Mesa ', '').length > 6 ? liveTable.name.replace('Mesa ', 'M.') : liveTable.name}
+                      </div>
+                      <div className="mt-0.5 text-center" style={{ fontSize: '8px', color: '#9ca3af' }}>
+                        {liveTable.waiter?.split(' ')[0]}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-lg font-bold leading-none mb-0.5" style={{ color: textColor }}>{liveTable.number}</div>
+                      <div className="text-xs font-medium text-center leading-tight truncate px-1" style={{ color: textColor, fontSize: '10px', maxWidth: '90%' }}>
+                        {liveTable.name.replace('Mesa ', '').length > 6 ? liveTable.name.replace('Mesa ', 'M.') : liveTable.name}
+                      </div>
+                      <div className="flex items-center gap-0.5 mt-0.5" style={{ color: textColor, opacity: 0.7 }}>
+                        <Users size={9} />
+                        <span style={{ fontSize: '9px' }}>{liveTable.capacity}</span>
+                      </div>
 
-                  {(liveTable.status === 'ocupada' || isMerged) && liveTable.openedAt && (
-                    <div className="flex items-center gap-0.5 mt-1" style={{ color: textColor, opacity: 0.8 }}>
-                      <Clock size={8} />
-                      <span style={{ fontSize: '8px' }}>{liveTable.openedAt}</span>
-                    </div>
-                  )}
-                  {liveTable.partialTotal !== undefined && (
-                    <div className="mt-0.5 font-bold font-mono" style={{ fontSize: '9px', color: textColor }}>${liveTable.partialTotal}</div>
-                  )}
+                      {(liveTable.status === 'ocupada' || isMerged) && liveTable.openedAt && (
+                        <div className="flex items-center gap-0.5 mt-1" style={{ color: textColor, opacity: 0.8 }}>
+                          <Clock size={8} />
+                          <span style={{ fontSize: '8px' }}>{liveTable.openedAt}</span>
+                        </div>
+                      )}
+                      {liveTable.partialTotal !== undefined && (
+                        <div className="mt-0.5 font-bold font-mono" style={{ fontSize: '9px', color: textColor }}>${liveTable.partialTotal}</div>
+                      )}
 
-                  {/* Hover overlay for libre tables */}
-                  {liveTable.status === 'libre' && !isMerged && isHovered && !mergeMode && !editMode && (
-                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-green-500/10">
-                      <Plus size={20} className="text-green-600" />
-                    </div>
-                  )}
-                  {mergeMode && isHovered && !isMergeSelected && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10" style={{ borderRadius: lt.shape === 'round' ? '50%' : '8px' }}>
-                      <Plus size={20} className="text-blue-500" />
-                    </div>
+                      {/* Hover overlay for libre tables */}
+                      {liveTable.status === 'libre' && !isMerged && isHovered && !mergeMode && !editMode && (
+                        <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-green-500/10">
+                          <Plus size={20} className="text-green-600" />
+                        </div>
+                      )}
+                      {mergeMode && isHovered && !isMergeSelected && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-blue-500/10" style={{ borderRadius: lt.shape === 'round' ? '50%' : '8px' }}>
+                          <Plus size={20} className="text-blue-500" />
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Status badge */}
@@ -410,11 +467,11 @@ export default function TableMap({
                     className="absolute bottom-1 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded-full font-semibold"
                     style={{
                       fontSize: '8px',
-                      backgroundColor: isMerged ? 'rgba(168,85,247,0.2)' : liveTable.status === 'libre' ? '#dcfce7' : liveTable.status === 'ocupada' ? '#fee2e2' : '#fef3c7',
-                      color: isMerged ? '#7c3aed' : liveTable.status === 'libre' ? '#166534' : liveTable.status === 'ocupada' ? '#991b1b' : '#92400e',
+                      backgroundColor: isOtherWaiter ? '#f3f4f6' : isMerged ? 'rgba(168,85,247,0.15)' : liveTable.status === 'libre' ? '#dcfce7' : liveTable.status === 'ocupada' ? '#fee2e2' : '#fef3c7',
+                      color: isOtherWaiter ? '#9ca3af' : isMerged ? '#7c3aed' : liveTable.status === 'libre' ? '#166534' : liveTable.status === 'ocupada' ? '#991b1b' : '#92400e',
                     }}
                   >
-                    {isMerged ? 'Unida' : statusLabel[liveTable.status]}
+                    {isOtherWaiter ? 'Bloqueada' : isMerged ? 'Unida' : statusLabel[liveTable.status]}
                   </div>
                 </div>
               );
@@ -482,9 +539,12 @@ export default function TableMap({
           const isMerged = !!table.mergeGroupId;
           const isHovered = hoveredTable === table.id;
           const mergeGroupSize = isMerged ? (mergeGroups[table.mergeGroupId!]?.length ?? 1) : 0;
+          // Waiter blocking: table occupied by a different waiter
+          const isOtherWaiter = table.status === 'ocupada' && !!table.waiter && !!currentWaiter && table.waiter !== currentWaiter;
 
           let cellClass = 'table-map-cell ';
-          if (isMerged) cellClass += 'table-merged';
+          if (isOtherWaiter) cellClass += 'table-espera'; // grey-ish
+          else if (isMerged) cellClass += 'table-merged';
           else if (table.status === 'libre') cellClass += 'table-libre';
           else if (table.status === 'ocupada') cellClass += 'table-ocupada';
           else cellClass += 'table-espera';
@@ -509,18 +569,23 @@ export default function TableMap({
             <div
               key={table.id}
               className={cellClass}
-              style={{ minHeight: '100px', position: 'relative', cursor: 'pointer' }}
+              style={{ minHeight: '100px', position: 'relative', cursor: isOtherWaiter ? 'not-allowed' : 'pointer', opacity: isOtherWaiter ? 0.6 : 1 }}
               onMouseEnter={() => setHoveredTable(table.id)}
               onMouseLeave={() => setHoveredTable(null)}
               onClick={handleClick}
             >
-              {isMerged && (
+              {isOtherWaiter && (
+                <div className="absolute top-1.5 right-1.5 text-gray-400 z-10">
+                  <Lock size={12} />
+                </div>
+              )}
+              {isMerged && !isOtherWaiter && (
                 <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 px-1 py-0.5 rounded-full text-purple-700 z-10" style={{ backgroundColor: 'rgba(168,85,247,0.15)', fontSize: '8px' }}>
                   <Link2 size={8} />
                   <span className="font-bold">{mergeGroupSize}</span>
                 </div>
               )}
-              {isMerged && isHovered && !mergeMode && onUnmerge && (
+              {isMerged && isHovered && !mergeMode && !isOtherWaiter && onUnmerge && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onUnmerge(table); }}
                   className="absolute top-1.5 left-1.5 w-5 h-5 rounded-full flex items-center justify-center z-20 transition-colors"
@@ -535,68 +600,80 @@ export default function TableMap({
                   <span className="text-white font-bold" style={{ fontSize: '9px' }}>✓</span>
                 </div>
               )}
-              <div className="text-xl font-bold leading-none mb-1">{table.number}</div>
-              {reservedTables.includes(table.id) && table.status !== 'ocupada' && (
-                <span className="text-xs font-bold px-1.5 py-0.5 rounded-full"
-                  style={{ backgroundColor: 'rgba(139,92,246,0.25)', color: '#ddd6fe', fontSize: '9px' }}>
-                  Reservada
-                </span>
-              )}
-              <div className="text-xs font-medium text-center leading-tight mb-2 truncate w-full px-1">
-                {table.name.replace('Mesa ', '').length > 8 ? table.name.replace('Mesa ', 'M.') : table.name}
-              </div>
-              <div className="flex items-center gap-1 text-xs opacity-70">
-                <Users size={10} />
-                <span>{table.capacity}</span>
-              </div>
-              {(table.status === 'ocupada' || isMerged) && (
-                <div className="mt-2 w-full">
-                  {table.openedAt && (
-                    <div className="flex items-center gap-1 text-xs opacity-80 justify-center">
-                      <Clock size={9} />
-                      <span>{table.openedAt}</span>
+              {isOtherWaiter ? (
+                <>
+                  <div className="text-xl leading-none mb-1">🔒</div>
+                  <div className="text-xs font-medium text-center leading-tight mb-1 truncate w-full px-1">
+                    {table.name.replace('Mesa ', '').length > 8 ? table.name.replace('Mesa ', 'M.') : table.name}
+                  </div>
+                  <div className="text-xs text-gray-400 text-center">{table.waiter?.split(' ')[0]}</div>
+                </>
+              ) : (
+                <>
+                  <div className="text-xl font-bold leading-none mb-1">{table.number}</div>
+                  {reservedTables.includes(table.id) && table.status !== 'ocupada' && (
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ backgroundColor: 'rgba(139,92,246,0.25)', color: '#ddd6fe', fontSize: '9px' }}>
+                      Reservada
+                    </span>
+                  )}
+                  <div className="text-xs font-medium text-center leading-tight mb-2 truncate w-full px-1">
+                    {table.name.replace('Mesa ', '').length > 8 ? table.name.replace('Mesa ', 'M.') : table.name}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs opacity-70">
+                    <Users size={10} />
+                    <span>{table.capacity}</span>
+                  </div>
+                  {(table.status === 'ocupada' || isMerged) && (
+                    <div className="mt-2 w-full">
+                      {table.openedAt && (
+                        <div className="flex items-center gap-1 text-xs opacity-80 justify-center">
+                          <Clock size={9} />
+                          <span>{table.openedAt}</span>
+                        </div>
+                      )}
+                      {table.itemCount !== undefined && (
+                        <div className="flex items-center gap-1 text-xs opacity-80 justify-center mt-0.5">
+                          <ShoppingBag size={9} />
+                          <span>{table.itemCount} items</span>
+                        </div>
+                      )}
+                      {table.partialTotal !== undefined && (
+                        <div className="mt-1.5 text-xs font-bold text-center font-mono">${table.partialTotal}</div>
+                      )}
                     </div>
                   )}
-                  {table.itemCount !== undefined && (
-                    <div className="flex items-center gap-1 text-xs opacity-80 justify-center mt-0.5">
-                      <ShoppingBag size={9} />
-                      <span>{table.itemCount} items</span>
+                  {table.status === 'espera' && !isMerged && (
+                    <div className="mt-2 text-xs opacity-80 text-center">
+                      {table.openedAt && (
+                        <div className="flex items-center gap-1 justify-center">
+                          <Clock size={9} />
+                          <span>Desde {table.openedAt}</span>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {table.partialTotal !== undefined && (
-                    <div className="mt-1.5 text-xs font-bold text-center font-mono">${table.partialTotal}</div>
-                  )}
-                </div>
-              )}
-              {table.status === 'espera' && !isMerged && (
-                <div className="mt-2 text-xs opacity-80 text-center">
-                  {table.openedAt && (
-                    <div className="flex items-center gap-1 justify-center">
-                      <Clock size={9} />
-                      <span>Desde {table.openedAt}</span>
+                  {table.status === 'libre' && !isMerged && isHovered && !mergeMode && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-green-500/10">
+                      <Plus size={24} className="text-green-600" />
                     </div>
                   )}
-                </div>
-              )}
-              {table.status === 'libre' && !isMerged && isHovered && !mergeMode && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-green-500/10">
-                  <Plus size={24} className="text-green-600" />
-                </div>
-              )}
-              {mergeMode && isHovered && !isMergeSelected && (
-                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-blue-500/10">
-                  <Plus size={24} className="text-blue-500" />
-                </div>
+                  {mergeMode && isHovered && !isMergeSelected && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-blue-500/10">
+                      <Plus size={24} className="text-blue-500" />
+                    </div>
+                  )}
+                </>
               )}
               <div
                 className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs px-1.5 py-0.5 rounded-full font-semibold"
                 style={{
                   fontSize: '9px',
-                  backgroundColor: isMerged ? 'rgba(168,85,247,0.15)' : table.status === 'libre' ? '#dcfce7' : table.status === 'ocupada' ? '#fee2e2' : '#fef3c7',
-                  color: isMerged ? '#7c3aed' : table.status === 'libre' ? '#166534' : table.status === 'ocupada' ? '#991b1b' : '#92400e',
+                  backgroundColor: isOtherWaiter ? '#f3f4f6' : isMerged ? 'rgba(168,85,247,0.15)' : table.status === 'libre' ? '#dcfce7' : table.status === 'ocupada' ? '#fee2e2' : '#fef3c7',
+                  color: isOtherWaiter ? '#9ca3af' : isMerged ? '#7c3aed' : table.status === 'libre' ? '#166534' : table.status === 'ocupada' ? '#991b1b' : '#92400e',
                 }}
               >
-                {isMerged ? 'Unida' : statusLabel[table.status]}
+                {isOtherWaiter ? 'Bloqueada' : isMerged ? 'Unida' : statusLabel[table.status]}
               </div>
             </div>
           );

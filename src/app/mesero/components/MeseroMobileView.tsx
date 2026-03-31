@@ -139,10 +139,33 @@ export default function MeseroMobileView() {
       if (destroyed) return;
       channel = supabase
         .channel(`mesero-tables-${Date.now()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, (payload: any) => {
           loadData();
+          // If the currently-selected table was freed by another device, go back to table list
+          setSelectedTable(prev => {
+            if (!prev) return prev;
+            const changed = payload?.new ?? payload?.old;
+            if (changed && changed.id === prev.id) {
+              const newStatus = payload?.new?.status;
+              const newOrderId = payload?.new?.current_order_id;
+              if (newStatus === 'libre' || (!newOrderId && prev.currentOrderId)) {
+                setTimeout(() => {
+                  setOrderItems([]);
+                  setCurrentOrderId(null);
+                  setShowCart(false);
+                  setView('tables');
+                }, 0);
+                return null;
+              }
+            }
+            return prev;
+          });
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+          checkReadyOrders();
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
+          loadData();
           checkReadyOrders();
         })
         .subscribe((status) => {
@@ -163,7 +186,7 @@ export default function MeseroMobileView() {
       if (retryTimeout) clearTimeout(retryTimeout);
       if (channel) supabase.removeChannel(channel);
     };
-  }, [supabase, loadData]);
+  }, [supabase, loadData, checkReadyOrders]);
 
   // ─── Table selection: load existing order if mesa already open ────────────
 

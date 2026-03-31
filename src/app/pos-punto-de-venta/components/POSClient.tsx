@@ -307,10 +307,37 @@ export default function POSClient() {
       if (destroyed) return;
       channel = supabase
         .channel(`pos-tables-${Date.now()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, (payload: any) => {
           fetchTables();
+          // If the currently-selected table was freed/changed by another device, reset the order panel
+          setSelectedTable(prev => {
+            if (!prev) return prev;
+            const changed = payload?.new ?? payload?.old;
+            if (changed && changed.id === prev.id) {
+              const newStatus = payload?.new?.status;
+              const newOrderId = payload?.new?.current_order_id;
+              // Table was freed (status changed to libre or order removed)
+              if (newStatus === 'libre' || (!newOrderId && prev.currentOrderId)) {
+                // Reset order panel asynchronously to avoid state update during render
+                setTimeout(() => {
+                  setOrderItems([]);
+                  setView('tables');
+                  setKitchenSent(false);
+                  setSentItemsSnapshot([]);
+                }, 0);
+                return null;
+              }
+            }
+            return prev;
+          });
         })
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
+          fetchTables();
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, () => {
+          fetchTables();
+        })
+        .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'orders' }, () => {
           fetchTables();
         })
         .subscribe((status) => {
@@ -394,6 +421,13 @@ export default function POSClient() {
       setMergeSelection((prev) =>
         prev.includes(table.id) ? prev.filter((id) => id !== table.id) : [...prev, table.id]
       );
+      return;
+    }
+
+    // ── Waiter-based table blocking (same logic as MeseroMovil) ──────────────
+    const currentWaiter = appUser?.fullName ?? 'Administrador';
+    if (table.status === 'ocupada' && table.waiter && table.waiter !== currentWaiter) {
+      toast.error(`Mesa de ${table.waiter} — no puedes modificarla`);
       return;
     }
 
@@ -842,6 +876,7 @@ export default function POSClient() {
                     mergeMode={mergeMode}
                     mergeSelection={mergeSelection}
                     onUnmerge={handleUnmerge}
+                    currentWaiter={appUser?.fullName ?? 'Administrador'}
                     layoutTables={layoutTables.length > 0 ? layoutTables : undefined}
                     onMoveTable={handleMoveTable}
                     onDeleteTable={handleDeleteTable}
@@ -910,7 +945,7 @@ export default function POSClient() {
             <span className="mt-0.5">{tab.label}</span>
             {tab.badge && tab.badge > 0 && (
               <span className="absolute top-1 right-1/4 w-4 h-4 rounded-full text-xs font-bold flex items-center justify-center text-white"
-                style={{ backgroundColor: '#f59e0b', fontSize: '10px' }}>
+                style={{ backgroundColor: '#fde68a', fontSize: '10px' }}>
                 {tab.badge > 9 ? '9+' : tab.badge}
               </span>
             )}

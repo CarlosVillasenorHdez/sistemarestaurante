@@ -104,6 +104,43 @@ export default function ReservacionesManagement() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Realtime: auto-refresh reservations when any reservation or table changes
+  useEffect(() => {
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      channel = supabase
+        .channel(`reservaciones-rt-${Date.now()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
+          loadData();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+          loadData();
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (channel) { supabase.removeChannel(channel); channel = null; }
+            const delay = Math.min(3000 * Math.pow(2, retryCount), 30000);
+            retryCount += 1;
+            if (!destroyed) retryTimeout = setTimeout(connect, delay);
+          }
+        });
+    };
+
+    connect();
+    return () => {
+      destroyed = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [supabase, loadData]);
+
   // Calendar helpers
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();

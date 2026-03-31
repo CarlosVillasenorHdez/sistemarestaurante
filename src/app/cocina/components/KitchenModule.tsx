@@ -337,8 +337,8 @@ export default function KitchenModule() {
 
   useEffect(() => {
     fetchOrders();
-    // Fallback polling every 10 seconds in case realtime drops
-    const interval = setInterval(() => fetchOrdersRef.current(), 10000);
+    // Fallback polling every 5 seconds in case realtime drops
+    const interval = setInterval(() => fetchOrdersRef.current(), 5000);
     return () => clearInterval(interval);
   }, [fetchOrders]);
 

@@ -152,6 +152,40 @@ export default function OrdersTable() {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
+  // Realtime: auto-refresh orders list when any order changes from any device
+  useEffect(() => {
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryCount = 0;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let destroyed = false;
+
+    const connect = () => {
+      if (destroyed) return;
+      channel = supabase
+        .channel(`orders-mgmt-${Date.now()}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+          fetchOrders();
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            retryCount = 0;
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            if (channel) { supabase.removeChannel(channel); channel = null; }
+            const delay = Math.min(3000 * Math.pow(2, retryCount), 30000);
+            retryCount += 1;
+            if (!destroyed) retryTimeout = setTimeout(connect, delay);
+          }
+        });
+    };
+
+    connect();
+    return () => {
+      destroyed = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchOrders]);
+
   const meseros = useMemo(() => {
     const set = new Set(orders.map((o) => o.mesero));
     return Array.from(set).sort();
