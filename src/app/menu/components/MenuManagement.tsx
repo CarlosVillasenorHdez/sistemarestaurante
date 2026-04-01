@@ -23,6 +23,7 @@ export interface Dish {
   imageAlt: string;
   emoji: string;
   popular: boolean;
+  preparationTimeMin?: number;
 }
 
 export interface Ingredient {
@@ -56,7 +57,7 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'Todas'>, string> = {
 
 const emptyForm = (): Omit<Dish, 'id'> => ({
   name: '', description: '', price: 0, category: 'Entradas',
-  available: true, image: null, imageAlt: '', emoji: '', popular: false,
+  available: true, image: null, imageAlt: '', emoji: '', popular: false, preparationTimeMin: 15,
 });
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -579,7 +580,7 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
 function DishFormModal({ dish, onSave, onClose }: { dish: Dish | null; onSave: (data: Omit<Dish, 'id'>) => void; onClose: () => void }) {
   const isEdit = dish !== null;
   const [form, setForm] = useState<Omit<Dish, 'id'>>(
-    dish ? { name: dish.name, description: dish.description, price: dish.price, category: dish.category, available: dish.available, image: dish.image, imageAlt: dish.imageAlt, emoji: dish.emoji, popular: dish.popular }
+    dish ? { name: dish.name, description: dish.description, price: dish.price, category: dish.category, available: dish.available, image: dish.image, imageAlt: dish.imageAlt, emoji: dish.emoji, popular: dish.popular, preparationTimeMin: (dish as any).preparationTimeMin ?? 15 }
       : emptyForm()
   );
   const [errors, setErrors] = useState<Partial<Record<keyof Omit<Dish, 'id'>, string>>>({});
@@ -683,6 +684,22 @@ function DishFormModal({ dish, onSave, onClose }: { dish: Dish | null; onSave: (
                 <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'rgba(255,255,255,0.4)' }} />
               </div>
             </div>
+          </div>
+          {/* Preparation time */}
+          <div>
+            <label className="block text-xs font-semibold mb-1.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              ⏱️ Tiempo de preparación (minutos)
+            </label>
+            <input
+              type="number" min={1} max={120} step={1}
+              value={(form as any).preparationTimeMin ?? 15}
+              onChange={(e) => set('preparationTimeMin' as any, parseInt(e.target.value) || 15)}
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all"
+              style={{ backgroundColor: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: 'white' }}
+            />
+            <p className="text-xs mt-1" style={{ color: 'rgba(255,255,255,0.35)' }}>
+              El KDS usa este tiempo para mostrar alertas de demora en cocina
+            </p>
           </div>
           <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <div>
@@ -836,6 +853,7 @@ export default function MenuManagement() {
           name: data.name, description: data.description, price: data.price,
           category: data.category, available: data.available, image: data.image,
           image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
+          preparation_time_min: (data as any).preparationTimeMin ?? 15,
           updated_at: new Date().toISOString(),
         }).eq('id', editingDish.id);
         if (error) throw error;
@@ -844,6 +862,7 @@ export default function MenuManagement() {
           name: data.name, description: data.description, price: data.price,
           category: data.category, available: data.available, image: data.image,
           image_alt: data.imageAlt, emoji: data.emoji, popular: data.popular,
+          preparation_time_min: (data as any).preparationTimeMin ?? 15,
         });
         if (error) throw error;
       }

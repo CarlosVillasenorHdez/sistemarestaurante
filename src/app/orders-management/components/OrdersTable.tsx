@@ -31,6 +31,8 @@ export interface OrderRecord {
   durationMin: number | null;
   branch: string;
   notes?: string;
+  cancelType?: 'sin_costo' | 'con_costo' | null;
+  kitchenStatus?: string;
 }
 
 type SortField = 'id' | 'mesa' | 'mesero' | 'total' | 'openedAt' | 'status';
@@ -45,6 +47,17 @@ const statusConfig: Record<OrderStatus, { label: string; className: string; dotC
 };
 
 const PAGE_SIZES = [10, 20, 50];
+
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+function weekStart() {
+  const d = new Date(); const day = d.getDay();
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().split('T')[0];
+}
+function monthStart() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+}
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 
@@ -145,6 +158,8 @@ export default function OrdersTable() {
         durationMin: o.duration_min,
         branch: o.branch,
         notes: o.notes,
+        cancelType: (o as any).cancel_type ?? null,
+        kitchenStatus: (o as any).kitchen_status ?? null,
       })));
     }
     setLoading(false);
@@ -225,15 +240,17 @@ export default function OrdersTable() {
     setPage(1);
   };
 
-  const handleCancelConfirm = async (orderId: string, reason: string) => {
+  const handleCancelConfirm = async (orderId: string, reason: string, cancelType: 'sin_costo' | 'con_costo') => {
     await supabase.from('orders').update({
       status: 'cancelada',
+      cancel_type: cancelType,
       closed_at: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
       notes: reason,
       updated_at: new Date().toISOString(),
     }).eq('id', orderId);
     setCancelOrder(null);
-    toast.success(`Orden ${orderId} cancelada. Motivo: "${reason}"`);
+    const label = cancelType === 'con_costo' ? '⚠️ Merma registrada' : 'Orden cancelada';
+    toast.success(`${label} — ${orderId}. Motivo: "${reason}"`);
     await fetchOrders();
   };
 
@@ -300,20 +317,24 @@ export default function OrdersTable() {
   const isDateFiltered = !!(dateFrom || dateTo);
   const hasMoreOrders = !isDateFiltered && orders.length >= 1000;
   const cancelCount = filtered.filter((o) => o.status === 'cancelada').length;
+  const mermaOrders = filtered.filter((o) => o.status === 'cancelada' && o.cancelType === 'con_costo');
+  const mermaTotal = mermaOrders.reduce((s, o) => s + o.subtotal, 0);
+  const cancelSinCosto = filtered.filter((o) => o.status === 'cancelada' && o.cancelType !== 'con_costo').length;
 
   return (
     <div className="flex flex-col gap-4">
       {/* Summary bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
-          { label: 'Total Órdenes', value: loading ? '…' : String(filtered.length), color: '#1B3A6B', bg: '#eff6ff' },
-          { label: 'Abiertas Ahora', value: loading ? '…' : String(openCount), color: '#d97706', bg: '#fffbeb' },
-          { label: 'Ventas Cerradas', value: loading ? '…' : `$${totalVentas.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, color: '#16a34a', bg: '#f0fdf4' },
-          { label: 'Canceladas', value: loading ? '…' : String(cancelCount), color: '#dc2626', bg: '#fef2f2' },
+          { label: 'Total Órdenes', value: loading ? '…' : String(filtered.length), color: '#1B3A6B', bg: '#eff6ff', border: '#bfdbfe' },
+          { label: 'Abiertas Ahora', value: loading ? '…' : String(openCount), color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+          { label: 'Ventas Cerradas', value: loading ? '…' : `$${totalVentas.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, color: '#16a34a', bg: '#f0fdf4', border: '#86efac' },
+          { label: 'Canceladas s/costo', value: loading ? '…' : String(cancelSinCosto), color: '#6b7280', bg: '#f9fafb', border: '#e5e7eb' },
+          { label: '⚠️ Merma', value: loading ? '…' : (mermaTotal > 0 ? `$${mermaTotal.toFixed(2)}` : `${mermaOrders.length} órd.`), color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
         ].map((stat) => (
-          <div key={stat.label} className="rounded-xl p-4 border" style={{ backgroundColor: stat.bg, borderColor: stat.bg === '#eff6ff' ? '#bfdbfe' : stat.bg === '#fffbeb' ? '#fde68a' : stat.bg === '#f0fdf4' ? '#86efac' : '#fca5a5' }}>
+          <div key={stat.label} className="rounded-xl p-4 border" style={{ backgroundColor: stat.bg, borderColor: stat.border }}>
             <p className="text-xs text-gray-500 mb-1 font-medium">{stat.label}</p>
-            <p className="font-mono font-bold text-xl" style={{ color: stat.color }}>{stat.value}</p>
+            <p className="font-mono font-bold text-lg" style={{ color: stat.color }}>{stat.value}</p>
           </div>
         ))}
       </div>
@@ -338,6 +359,20 @@ export default function OrdersTable() {
           <option value="todos">Todos los meseros</option>
           {meseros.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+        {/* Quick period buttons */}
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1 flex-shrink-0">
+          {[
+            { label: 'Hoy', action: () => { const d = todayStr(); setDateFrom(d); setDateTo(d); setPage(1); } },
+            { label: 'Semana', action: () => { setDateFrom(weekStart()); setDateTo(todayStr()); setPage(1); } },
+            { label: 'Mes', action: () => { setDateFrom(monthStart()); setDateTo(todayStr()); setPage(1); } },
+          ].map((p) => (
+            <button key={p.label} onClick={p.action}
+              className="px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all whitespace-nowrap"
+              style={{ backgroundColor: 'transparent', color: '#6b7280' }}>
+              {p.label}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <span className="text-xs text-gray-500">Desde</span>
           <input type="date" value={dateFrom}
@@ -523,7 +558,7 @@ export default function OrdersTable() {
       </div>
 
       {selectedOrder && <OrderDetailModal order={selectedOrder} onClose={() => setSelectedOrder(null)} onCancel={(order) => { setSelectedOrder(null); setCancelOrder(order); }} />}
-      {cancelOrder && <CancelOrderModal order={cancelOrder} onClose={() => setCancelOrder(null)} onConfirm={handleCancelConfirm} />}
+      {cancelOrder && <CancelOrderModal order={{ ...cancelOrder, kitchenStatus: cancelOrder.kitchenStatus ?? 'en_edicion' }} onClose={() => setCancelOrder(null)} onConfirm={handleCancelConfirm} />}
     </div>
   );
 }
