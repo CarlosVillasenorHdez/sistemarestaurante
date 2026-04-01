@@ -252,8 +252,8 @@ export default function MeseroMobileView() {
 
     setOrderItems(newItems);
 
-    // Ensure open order exists, then sync
-    const waiter = 'Administrador';
+    // Use the authenticated waiter name — never fall back to 'Administrador'
+    const waiter = myName || appUser?.fullName || 'Mesero';
     const flowTable = { id: selectedTable.id, number: selectedTable.number, name: selectedTable.name, currentOrderId: currentOrderId ?? undefined };
     const orderId = await ensureOpenOrder(flowTable, waiter, branchName);
     if (!currentOrderId) {
