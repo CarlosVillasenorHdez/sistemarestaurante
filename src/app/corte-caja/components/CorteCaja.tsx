@@ -37,6 +37,8 @@ interface OrderSummary {
   iva_total: number;
   por_mesero: { nombre: string; total: number; ordenes: number }[];
   por_hora: { hora: string; total: number }[];
+  merma_total: number;
+  ordenes_canceladas: { id: string; mesa: string; mesero: string; subtotal: number; notes: string | null }[];
 }
 
 const DENOMINACIONES_MXN = [
@@ -139,15 +141,24 @@ export default function CorteCaja() {
   // ── Load order summary for active corte ────────────────────────────────────
   const loadSummary = useCallback(async (desde: string) => {
     setSummaryLoading(true);
-    const { data: orders } = await supabase
-      .from('orders')
-      .select('total, subtotal, iva, discount, pay_method, mesero, closed_at')
-      .eq('status', 'cerrada')
-      .gte('closed_at', desde)
-      .order('closed_at', { ascending: false });
+    const [{ data: orders }, { data: mermaOrders }] = await Promise.all([
+      supabase
+        .from('orders')
+        .select('total, subtotal, iva, discount, pay_method, mesero, closed_at')
+        .eq('status', 'cerrada')
+        .gte('closed_at', desde)
+        .order('closed_at', { ascending: false }),
+      supabase
+        .from('orders')
+        .select('id, mesa, mesero, subtotal, notes, closed_at')
+        .eq('status', 'cancelada')
+        .eq('cancel_type', 'con_costo')
+        .gte('updated_at', desde)
+        .order('updated_at', { ascending: false }),
+    ]);
 
     if (!orders || orders.length === 0) {
-      setSummary({ ventas_efectivo: 0, ventas_tarjeta: 0, ventas_total: 0, ordenes_count: 0, descuentos_total: 0, iva_total: 0, por_mesero: [], por_hora: [] });
+      setSummary({ ventas_efectivo: 0, ventas_tarjeta: 0, ventas_total: 0, ordenes_count: 0, descuentos_total: 0, iva_total: 0, por_mesero: [], por_hora: [], merma_total: 0, ordenes_canceladas: [] });
       setSummaryLoading(false);
       return;
     }
@@ -184,6 +195,11 @@ export default function CorteCaja() {
       por_hora: Object.entries(hourMap)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([hora, total]) => ({ hora, total })),
+      merma_total: (mermaOrders || []).reduce((s, o) => s + Number(o.subtotal), 0),
+      ordenes_canceladas: (mermaOrders || []).map(o => ({
+        id: o.id, mesa: o.mesa, mesero: o.mesero,
+        subtotal: Number(o.subtotal), notes: o.notes,
+      })),
     });
     setSummaryLoading(false);
   }, [supabase]);
@@ -236,6 +252,8 @@ export default function CorteCaja() {
       ventas_efectivo: summary?.ventas_efectivo ?? 0,
       ventas_tarjeta: summary?.ventas_tarjeta ?? 0,
       ventas_total: summary?.ventas_total ?? 0,
+      merma_total: summary?.merma_total ?? 0,
+      ordenes_canceladas_count: summary?.ordenes_canceladas.length ?? 0,
       ordenes_count: summary?.ordenes_count ?? 0,
       descuentos_total: summary?.descuentos_total ?? 0,
       iva_total: summary?.iva_total ?? 0,
@@ -425,6 +443,37 @@ export default function CorteCaja() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ── Merma por Atención ── */}
+        {summary && (
+          <div className="rounded-2xl border p-5" style={{ borderColor: summary.merma_total > 0 ? '#fca5a5' : '#e5e7eb', backgroundColor: summary.merma_total > 0 ? '#fff5f5' : 'white' }}>
+            <h3 className="text-sm font-bold mb-4 flex items-center gap-2" style={{ color: '#dc2626' }}>
+              ⚠️ Merma por Atención del Turno
+            </h3>
+            {summary.merma_total === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-3">Sin mermas registradas en este turno ✓</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex justify-between items-center pb-3 border-b" style={{ borderColor: '#fca5a5' }}>
+                  <span className="text-sm font-semibold text-red-700">{summary.ordenes_canceladas.length} órdenes con costo</span>
+                  <span className="font-mono font-bold text-red-700 text-lg">${fmt(summary.merma_total)}</span>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {summary.ordenes_canceladas.map(o => (
+                    <div key={o.id} className="flex justify-between items-center text-xs py-1.5">
+                      <div>
+                        <span className="font-semibold text-gray-700">{o.mesa}</span>
+                        <span className="text-gray-400 ml-2">· {o.mesero}</span>
+                        {o.notes && <span className="text-gray-400 ml-2 italic">{o.notes.slice(0, 40)}</span>}
+                      </div>
+                      <span className="font-mono text-red-600 font-semibold">${fmt(o.subtotal)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

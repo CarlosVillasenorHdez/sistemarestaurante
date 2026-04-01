@@ -14,6 +14,7 @@ type KitchenStatus = 'pendiente' | 'preparacion' | 'lista' | 'entregada';
 type RealtimeStatus = 'conectado' | 'reconectando' | 'desconectado';
 
 interface KitchenOrderItem {
+  preparationTimeMin?: number;
   id: string;
   name: string;
   qty: number;
@@ -34,6 +35,7 @@ interface KitchenOrder {
   openedAt: string;
   createdAt: string;
   elapsedMin: number;
+  expectedPrepMin: number; // max prep time across all items
 }
 
 const STATUS_CONFIG: Record<KitchenStatus, { label: string; color: string; bg: string; border: string }> = {
@@ -80,19 +82,26 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
   const elapsed = calcElapsed(order.createdAt);
   const cfg = STATUS_CONFIG[order.kitchenStatus];
   const isLista    = order.kitchenStatus === 'lista';
-  // Niveles de urgencia por tiempo (ignorar si ya está lista)
-  const isCritical = !isLista && elapsed >= 30;
-  const isUrgent   = !isLista && elapsed >= 20 && elapsed < 30;
-  const isWarning  = !isLista && elapsed >= 10 && elapsed < 20;
-  const isOk       = isLista || elapsed < 10;
+  // Urgencia basada en tiempo esperado de preparación del platillo más tardado
+  const expected   = order.expectedPrepMin > 0 ? order.expectedPrepMin : 15;
+  const isPrep     = order.kitchenStatus === 'preparacion';
+  // Use kitchen_started_at when in prep, otherwise use createdAt
+  const elapsedForThisStatus = isPrep && order.kitchenStartedAt
+    ? Math.floor((Date.now() - new Date(order.kitchenStartedAt).getTime()) / 60000)
+    : elapsed;
+  const pct        = isPrep ? elapsedForThisStatus / expected : elapsed / (expected + 5);
+  const isCritical = !isLista && pct >= 1.0;        // 100%+ del tiempo esperado
+  const isUrgent   = !isLista && pct >= 0.8 && pct < 1.0; // 80-99%
+  const isWarning  = !isLista && pct >= 0.5 && pct < 0.8; // 50-79%
+  const isOk       = isLista || pct < 0.5;
 
   // Color dinámico para el borde y badge de tiempo
   const timeColor  = isCritical ? '#ef4444' : isUrgent ? '#f97316' : isWarning ? '#f59e0b' : isOk && isLista ? '#22c55e' : 'rgba(255,255,255,0.3)';
   const timeBg     = isCritical ? 'rgba(239,68,68,0.15)' : isUrgent ? 'rgba(249,115,22,0.15)' : isWarning ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.05)';
   const borderColor = isCritical ? 'rgba(239,68,68,0.6)' : isUrgent ? 'rgba(249,115,22,0.5)' : isWarning ? 'rgba(245,158,11,0.4)' : cfg.border;
 
-  // Barra de tiempo: 0→verde, 10→amarillo, 20→naranja, 30→rojo
-  const timeBarPct = Math.min((elapsed / 35) * 100, 100);
+  // Barra de tiempo basada en % del tiempo esperado
+  const timeBarPct = Math.min(pct * 100, 100);
   const timeBarColor = isCritical ? '#ef4444' : isUrgent ? '#f97316' : isWarning ? '#f59e0b' : '#22c55e';
 
   const nextStatus: Record<KitchenStatus, KitchenStatus | null> = {
@@ -151,7 +160,7 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
             style={{ backgroundColor: timeBg, color: timeColor }}
           >
             <Clock size={10} />
-            <span>{elapsed} min</span>
+            <span>{isPrep ? elapsedForThisStatus : elapsed} min / {expected} min esperado</span>
           </div>
           <span className="text-xs font-mono" style={{ color: 'rgba(255,255,255,0.3)' }}>{order.id.slice(-6)}</span>
         </div>
@@ -233,8 +242,6 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
             Entregada
           </button>
         )}
-        {/* Cancel button only available while order is still Pendiente */}
-        {order.kitchenStatus === 'pendiente' && (
         <button
           onClick={() => onCancel(order.id, order.mesa)}
           className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 transition-all hover:brightness-110"
@@ -243,7 +250,6 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
         >
           <X size={13} />
         </button>
-        )}
       </div>
     </div>
   );
@@ -310,6 +316,7 @@ export default function KitchenModule() {
           name: item.name,
           qty: item.qty,
           emoji: item.emoji || '🍽️',
+          preparationTimeMin: item.dishes?.preparation_time_min ?? 15,
           notes: item.notes,
           category: item.dishes?.category ?? null,
         })),
@@ -320,6 +327,7 @@ export default function KitchenModule() {
         openedAt: o.opened_at || '',
         createdAt: o.created_at,
         elapsedMin: 0,
+        expectedPrepMin: Math.max(15, ...((o.order_items || []).map((item: any) => item.dishes?.preparation_time_min ?? 15))),
       }));
 
       const pendingCount = mapped.filter((o) => o.kitchenStatus === 'pendiente').length;
@@ -451,16 +459,6 @@ export default function KitchenModule() {
   // ─── Button handlers ────────────────────────────────────────────────────────
 
   const handleAdvance = async (orderId: string, next: KitchenStatus) => {
-    const order = orders.find((o) => o.id === orderId);
-    if (!order) return;
-
-    // Once an order is in 'preparacion' or beyond, it cannot go back to 'pendiente'
-    const colIndex: Record<KitchenStatus, number> = { pendiente: 0, preparacion: 1, lista: 2, entregada: 3 };
-    if (colIndex[next] <= colIndex[order.kitchenStatus]) {
-      toast.error('No se puede regresar una orden que ya está en preparación');
-      return;
-    }
-
     const now = new Date().toISOString();
     const updates: Record<string, any> = {
       kitchen_status: next,

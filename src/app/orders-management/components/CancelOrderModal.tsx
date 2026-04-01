@@ -6,9 +6,9 @@ import { useForm } from 'react-hook-form';
 import { OrderRecord } from './OrdersTable';
 
 interface CancelOrderModalProps {
-  order: OrderRecord;
+  order: OrderRecord & { kitchenStatus?: string };
   onClose: () => void;
-  onConfirm: (orderId: string, reason: string) => void;
+  onConfirm: (orderId: string, reason: string, cancelType: 'sin_costo' | 'con_costo') => void;
 }
 
 interface FormValues {
@@ -37,13 +37,21 @@ export default function CancelOrderModal({ order, onClose, onConfirm }: CancelOr
   const selectedReason = watch('reason');
   const isOther = selectedReason === 'Otro motivo';
 
+  // Determine cancel type based on kitchen status
+  // pendiente/en_edicion = no ingredients used yet = sin_costo
+  // preparacion/lista = ingredients already used = con_costo (merma por atención)
+  const kitchenStatus = order.kitchenStatus ?? 'en_edicion';
+  const cancelType: 'sin_costo' | 'con_costo' =
+    kitchenStatus === 'preparacion' || kitchenStatus === 'lista'
+      ? 'con_costo'
+      : 'sin_costo';
+
   const onSubmit = async (data: FormValues) => {
     const finalReason = isOther ? data.customReason : data.reason;
     setLoading(true);
-    // Backend: PATCH order in Supabase, log cancellation reason, update table status to libre
-    await new Promise((r) => setTimeout(r, 700));
+    await new Promise((r) => setTimeout(r, 300));
     setLoading(false);
-    onConfirm(order.id, finalReason);
+    onConfirm(order.id, finalReason, cancelType);
   };
 
   return (
@@ -87,6 +95,26 @@ export default function CancelOrderModal({ order, onClose, onConfirm }: CancelOr
                 los platillos no serán cobrados. <strong>Esta acción no se puede deshacer.</strong>
               </p>
             </div>
+
+            {/* Merma warning — only shown when order is in preparation */}
+            {cancelType === 'con_costo' && (
+              <div
+                className="rounded-xl px-4 py-3 flex items-start gap-3"
+                style={{ backgroundColor: '#fff7ed', border: '1px solid #fb923c' }}
+              >
+                <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" style={{ color: '#ea580c' }} />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#c2410c' }}>
+                    ⚠️ Merma por Atención
+                  </p>
+                  <p className="text-xs mt-0.5" style={{ color: '#9a3412' }}>
+                    Esta orden ya está en preparación o lista. Los ingredientes ya se utilizaron
+                    y no se pueden recuperar. La cancelación generará un costo de{' '}
+                    <strong>${order.subtotal.toFixed(2)}</strong> registrado como merma.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Order summary mini */}
             <div
