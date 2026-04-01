@@ -343,9 +343,9 @@ export function useOrderFlow() {
 
   // ── Send order to kitchen — supports comandas ──────────────────────────────
   // First send: sets kitchen_status = 'pendiente' (order becomes visible in KDS).
-  // Subsequent sends (comanda): if order is already in preparacion/lista,
-  // appends the new items as a kitchen_note instead of resetting status.
-  // Pass prevSentCount = number of items already sent to identify new ones.
+  // Subsequent sends (comanda): if order is already visible in KDS (pendiente/preparacion/lista),
+  // appends the new items as a kitchen_note with a unique batch ID instead of resetting status.
+  // This ensures in-progress orders are never reverted to pendiente.
 
   const sendToKitchen = useCallback(async (
     orderId: string,
@@ -359,11 +359,13 @@ export function useOrderFlow() {
       .single();
 
     const currentStatus = orderData?.kitchen_status ?? 'en_edicion';
-    const inProgress = currentStatus === 'preparacion' || currentStatus === 'lista';
+    // Any status other than 'en_edicion' means the order is already visible in KDS
+    const alreadyInKDS = currentStatus !== 'en_edicion';
 
-    if (inProgress && newItems && newItems.length > 0) {
-      // COMANDA: append new items as a kitchen note without changing status
-      const comandaText = '🔔 COMANDA ADICIONAL:\n' +
+    if (alreadyInKDS && newItems && newItems.length > 0) {
+      // COMANDA: append new items as a kitchen note with unique batch ID — never change status
+      const batchId = `BATCH-${Date.now().toString(36).toUpperCase()}`;
+      const comandaText = `🔔 COMANDA [${batchId}]:\n` +
         newItems.map(i => `  • ${i.qty}x ${i.name}${i.notes ? ` (${i.notes})` : ''}`).join('\n');
       const existingNotes = orderData?.kitchen_notes || '';
       const separator = existingNotes ? '\n\n' : '';
@@ -376,7 +378,12 @@ export function useOrderFlow() {
       return true;
     }
 
-    // Normal first send
+    if (alreadyInKDS) {
+      // Order already in KDS but no new items to append — nothing to do
+      return true;
+    }
+
+    // First send: order is still 'en_edicion' — set to pendiente
     const { error } = await supabase.from('orders').update({
       kitchen_status: 'pendiente',
       updated_at: new Date().toISOString(),

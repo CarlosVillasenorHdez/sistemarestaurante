@@ -233,6 +233,8 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
             Entregada
           </button>
         )}
+        {/* Cancel button only available while order is still Pendiente */}
+        {order.kitchenStatus === 'pendiente' && (
         <button
           onClick={() => onCancel(order.id, order.mesa)}
           className="flex items-center justify-center w-8 h-8 rounded-lg flex-shrink-0 transition-all hover:brightness-110"
@@ -241,6 +243,7 @@ function OrderCard({ order, onAdvance, onDeliver, onCancel, tick, isDragging, on
         >
           <X size={13} />
         </button>
+        )}
       </div>
     </div>
   );
@@ -448,6 +451,16 @@ export default function KitchenModule() {
   // ─── Button handlers ────────────────────────────────────────────────────────
 
   const handleAdvance = async (orderId: string, next: KitchenStatus) => {
+    const order = orders.find((o) => o.id === orderId);
+    if (!order) return;
+
+    // Once an order is in 'preparacion' or beyond, it cannot go back to 'pendiente'
+    const colIndex: Record<KitchenStatus, number> = { pendiente: 0, preparacion: 1, lista: 2, entregada: 3 };
+    if (colIndex[next] <= colIndex[order.kitchenStatus]) {
+      toast.error('No se puede regresar una orden que ya está en preparación');
+      return;
+    }
+
     const now = new Date().toISOString();
     const updates: Record<string, any> = {
       kitchen_status: next,
