@@ -246,7 +246,7 @@ export default function ReportesManagement() {
   const [worstDishesData, setWorstDishesData] = useState<DishSales[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlySales[]>([]);
   const [staffPerformanceData, setStaffPerformanceData] = useState<StaffPerformance[]>([]);
-  const [totalSalesData] = useState<{ periodo: string; ventas: number; meta: number }[]>([]);
+  const [totalSalesData, setTotalSalesData] = useState<{ periodo: string; ventas: number; meta: number }[]>([]);
   const [basketPairs, setBasketPairs] = useState<BasketPair[]>([]);
 
   const [cogsData, setCogsData] = useState<DishCOGS[]>([]);
@@ -311,6 +311,51 @@ export default function ReportesManagement() {
       const totalOrdenes = orderList.length;
       const ticketProm = totalOrdenes > 0 ? totalVentas / totalOrdenes : 0;
       setRealKpis({ ventas: Math.round(totalVentas), ordenes: totalOrdenes, ticket: Math.round(ticketProm * 100) / 100, clientes: totalOrdenes });
+
+      // ── Build totalSalesData grouped by period ──
+      const DAILY_META = 15000;
+      if (dateRange === 'hoy') {
+        // Group by hour
+        const hourBuckets: Record<string, number> = {};
+        for (let h = 8; h <= 23; h++) {
+          hourBuckets[`${String(h).padStart(2, '0')}:00`] = 0;
+        }
+        orderList.forEach((o) => {
+          let h = new Date(o.created_at).getHours();
+          if (h >= 8 && h <= 23) {
+            const label = `${String(h).padStart(2, '0')}:00`;
+            hourBuckets[label] = (hourBuckets[label] || 0) + Number(o.total);
+          }
+        });
+        const hourlyMeta = Math.round(DAILY_META / 16); // spread over 16 hours
+        setTotalSalesData(
+          Object.entries(hourBuckets).map(([periodo, ventas]) => ({
+            periodo,
+            ventas: Math.round(ventas),
+            meta: hourlyMeta,
+          }))
+        );
+      } else {
+        // Group by day
+        const dayBuckets: Record<string, number> = {};
+        let startDate = new Date(start);
+        const endDate = new Date(end);
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const label = d.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+          dayBuckets[label] = 0;
+        }
+        orderList.forEach((o) => {
+          const label = new Date(o.created_at).toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+          dayBuckets[label] = (dayBuckets[label] || 0) + Number(o.total);
+        });
+        setTotalSalesData(
+          Object.entries(dayBuckets).map(([periodo, ventas]) => ({
+            periodo,
+            ventas: Math.round(ventas),
+            meta: DAILY_META,
+          }))
+        );
+      }
 
       // Order items for dish analysis
       if (orderIds.length > 0) {
@@ -904,7 +949,7 @@ export default function ReportesManagement() {
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-base font-700 text-gray-900" style={{ fontWeight: 700 }}>Ventas Totales</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Comparativo vs meta diaria ($15,000)</p>
+              <p className="text-xs text-gray-500">Comparativo vs meta diaria ($15,000)</p>
             </div>
             <div className="flex items-center gap-4 text-xs">
               <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: '#f59e0b' }}></span>Ventas</span>
