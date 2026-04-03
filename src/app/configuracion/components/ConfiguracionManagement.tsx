@@ -132,6 +132,39 @@ const ELEMENT_TYPES: { type: ElementType; label: string; emoji: string; color: s
   { type: 'decoracion', label: 'Decoración', emoji: '🌿', color: '#84cc16', defaultW: 1, defaultH: 1 },
 ];
 
+
+// Country → currency mapping for quick autocomplete
+const COUNTRY_CURRENCY: { name: string; flag: string; symbol: string; code: string; locale: string }[] = [
+  { name: 'México',         flag: '🇲🇽', symbol: '$',  code: 'MXN', locale: 'es-MX' },
+  { name: 'España',         flag: '🇪🇸', symbol: '€',  code: 'EUR', locale: 'es-ES' },
+  { name: 'Estados Unidos', flag: '🇺🇸', symbol: '$',  code: 'USD', locale: 'en-US' },
+  { name: 'Argentina',      flag: '🇦🇷', symbol: '$',  code: 'ARS', locale: 'es-AR' },
+  { name: 'Colombia',       flag: '🇨🇴', symbol: '$',  code: 'COP', locale: 'es-CO' },
+  { name: 'Chile',          flag: '🇨🇱', symbol: '$',  code: 'CLP', locale: 'es-CL' },
+  { name: 'Perú',           flag: '🇵🇪', symbol: 'S/', code: 'PEN', locale: 'es-PE' },
+  { name: 'Guatemala',      flag: '🇬🇹', symbol: 'Q',  code: 'GTQ', locale: 'es-GT' },
+  { name: 'Costa Rica',     flag: '🇨🇷', symbol: '₡',  code: 'CRC', locale: 'es-CR' },
+  { name: 'Uruguay',        flag: '🇺🇾', symbol: '$',  code: 'UYU', locale: 'es-UY' },
+  { name: 'Ecuador',        flag: '🇪🇨', symbol: '$',  code: 'USD', locale: 'es-EC' },
+  { name: 'Venezuela',      flag: '🇻🇪', symbol: 'Bs', code: 'VES', locale: 'es-VE' },
+  { name: 'Bolivia',        flag: '🇧🇴', symbol: 'Bs', code: 'BOB', locale: 'es-BO' },
+  { name: 'Paraguay',       flag: '🇵🇾', symbol: '₲',  code: 'PYG', locale: 'es-PY' },
+  { name: 'República Dom.', flag: '🇩🇴', symbol: '$',  code: 'DOP', locale: 'es-DO' },
+  { name: 'Honduras',       flag: '🇭🇳', symbol: 'L',  code: 'HNL', locale: 'es-HN' },
+  { name: 'El Salvador',    flag: '🇸🇻', symbol: '$',  code: 'USD', locale: 'es-SV' },
+  { name: 'Nicaragua',      flag: '🇳🇮', symbol: 'C$', code: 'NIO', locale: 'es-NI' },
+  { name: 'Panamá',         flag: '🇵🇦', symbol: 'B/', code: 'PAB', locale: 'es-PA' },
+  { name: 'Cuba',           flag: '🇨🇺', symbol: '$',  code: 'CUP', locale: 'es-CU' },
+  { name: 'Brasil',         flag: '🇧🇷', symbol: 'R$', code: 'BRL', locale: 'pt-BR' },
+  { name: 'Reino Unido',    flag: '🇬🇧', symbol: '£',  code: 'GBP', locale: 'en-GB' },
+  { name: 'Francia',        flag: '🇫🇷', symbol: '€',  code: 'EUR', locale: 'fr-FR' },
+  { name: 'Alemania',       flag: '🇩🇪', symbol: '€',  code: 'EUR', locale: 'de-DE' },
+  { name: 'Italia',         flag: '🇮🇹', symbol: '€',  code: 'EUR', locale: 'it-IT' },
+  { name: 'Canadá',         flag: '🇨🇦', symbol: '$',  code: 'CAD', locale: 'en-CA' },
+  { name: 'Australia',      flag: '🇦🇺', symbol: '$',  code: 'AUD', locale: 'en-AU' },
+  { name: 'Japón',          flag: '🇯🇵', symbol: '¥',  code: 'JPY', locale: 'ja-JP' },
+];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ConfiguracionManagement() {
@@ -187,6 +220,10 @@ export default function ConfiguracionManagement() {
   const [selectedLayoutTable, setSelectedLayoutTable] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const CELL = 56; // px per grid cell
+  const GRID_MIN_COLS = 8;  const GRID_MAX_COLS = 24;
+  const GRID_MIN_ROWS = 6;  const GRID_MAX_ROWS = 16;
+  const [gridCols, setGridCols] = useState(12);
+  const [gridRows, setGridRows] = useState(8);
 
   // System config loading
   const [sysConfigLoading, setSysConfigLoading] = useState(true);
@@ -323,6 +360,8 @@ export default function ConfiguracionManagement() {
       if (data) {
         setLayoutId(data.id);
         setLayoutTables((data.tables_layout as LayoutTable[]) || []);
+        if (data.width)  setGridCols(Math.max(8, Math.min(24, Number(data.width))));
+        if (data.height) setGridRows(Math.max(6, Math.min(16, Number(data.height))));
       }
     } catch {
       // no layout yet
@@ -551,7 +590,7 @@ export default function ConfiguracionManagement() {
 
   // ── Save layout ──────────────────────────────────────────────────────────────
   async function handleSaveLayout() {
-    const payload = { tables_layout: layoutTables, updated_at: new Date().toISOString() };
+    const payload = { tables_layout: layoutTables, width: gridCols, height: gridRows, updated_at: new Date().toISOString() };
     if (layoutId) {
       await supabase.from('restaurant_layout').update(payload).eq('id', layoutId);
     } else {
@@ -650,9 +689,12 @@ export default function ConfiguracionManagement() {
       }]);
     } else {
       const count = layoutTables.filter(t => t.elementType === type).length + 1;
+      // Walls default to full grid width; other elements keep their defaultW
+      const defaultW = type === 'pared' ? gridCols : etConfig.defaultW;
+      const defaultH = type === 'pared' ? 1 : etConfig.defaultH;
       setLayoutTables(prev => [...prev, {
         id: crypto.randomUUID(), number: 0, name: `${etConfig.label} ${count}`,
-        x: 1, y: 1, w: etConfig.defaultW, h: etConfig.defaultH,
+        x: 0, y: 1, w: defaultW, h: defaultH,
         shape: 'rect', capacity: 0, elementType: type, color: etConfig.color,
       }]);
     }
@@ -875,6 +917,30 @@ export default function ConfiguracionManagement() {
                 <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.35)' }}>
                   Símbolo y código monetario que aparece en tickets, reportes y pantallas
                 </p>
+                {/* Country selector — auto-fills symbol, code, locale */}
+                <div className="mb-3">
+                  <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>País / Región</label>
+                  <select
+                    onChange={(e) => {
+                      const entry = COUNTRY_CURRENCY.find(cc => cc.code + '|' + cc.locale === e.target.value);
+                      if (entry) {
+                        setCurrencySymbol(entry.symbol);
+                        setCurrencyCode(entry.code);
+                        setCurrencyLocale(entry.locale);
+                      }
+                    }}
+                    defaultValue=""
+                    className="w-full px-3 py-2 rounded-lg text-sm outline-none appearance-none"
+                    style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                  >
+                    <option value="" disabled>Selecciona un país para autocompletar...</option>
+                    {COUNTRY_CURRENCY.map(cc => (
+                      <option key={cc.code + cc.locale} value={cc.code + '|' + cc.locale}>
+                        {cc.flag} {cc.name} — {cc.symbol} ({cc.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Símbolo</label>
@@ -887,34 +953,19 @@ export default function ConfiguracionManagement() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Código ISO</label>
-                    <select
-                      value={currencyCode}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setCurrencyCode(v);
-                        if (v === 'MXN') { setCurrencySymbol('$'); setCurrencyLocale('es-MX'); }
-                        else if (v === 'EUR') { setCurrencySymbol('€'); setCurrencyLocale('es-ES'); }
-                        else if (v === 'USD') { setCurrencySymbol('$'); setCurrencyLocale('en-US'); }
-                        else if (v === 'GBP') { setCurrencySymbol('£'); setCurrencyLocale('en-GB'); }
-                        else if (v === 'COP') { setCurrencySymbol('$'); setCurrencyLocale('es-CO'); }
-                        else if (v === 'ARS') { setCurrencySymbol('$'); setCurrencyLocale('es-AR'); }
-                      }}
-                      className="w-full px-3 py-2 rounded-lg text-sm outline-none appearance-none"
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Código</label>
+                    <input
+                      type="text" maxLength={3} value={currencyCode}
+                      onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
+                      placeholder="MXN"
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none font-mono"
                       style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
-                    >
-                      <option value="MXN">MXN — Peso Mexicano</option>
-                      <option value="EUR">EUR — Euro</option>
-                      <option value="USD">USD — Dólar Americano</option>
-                      <option value="GBP">GBP — Libra Esterlina</option>
-                      <option value="COP">COP — Peso Colombiano</option>
-                      <option value="ARS">ARS — Peso Argentino</option>
-                    </select>
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Formato regional</label>
-                    <div className="px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #1e2d3d', color: 'rgba(255,255,255,0.5)' }}>
-                      {(1234.5).toLocaleString(currencyLocale, { minimumFractionDigits: 2 })}
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Preview</label>
+                    <div className="px-3 py-2 rounded-lg text-sm font-mono" style={{ backgroundColor: '#0f1923', border: '1px solid #1e2d3d', color: '#f59e0b' }}>
+                      {currencySymbol}{(1234.5).toLocaleString(currencyLocale, { minimumFractionDigits: 2 })}
                     </div>
                   </div>
                 </div>
@@ -940,11 +991,30 @@ export default function ConfiguracionManagement() {
                 <div className="flex gap-5">
                   {/* Grid canvas */}
                   <div className="flex-1">
+                    {/* Grid size controls */}
+                    <div className="flex items-center gap-5 mb-3 px-1">
+                      {[
+                        { label: 'Ancho', val: gridCols, set: setGridCols, min: 8, max: 24 },
+                        { label: 'Alto',  val: gridRows, set: setGridRows, min: 6, max: 16 },
+                      ].map(({ label, val, set, min, max }) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <span className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>{label}:</span>
+                          <button onClick={() => set((v: number) => Math.max(min, v - 1))}
+                            className="w-6 h-6 rounded flex items-center justify-center text-sm font-bold"
+                            style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>−</button>
+                          <span className="text-xs font-mono w-5 text-center" style={{ color: '#f1f5f9' }}>{val}</span>
+                          <button onClick={() => set((v: number) => Math.min(max, v + 1))}
+                            className="w-6 h-6 rounded flex items-center justify-center text-sm font-bold"
+                            style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)' }}>+</button>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.25)' }}>({min}–{max})</span>
+                        </div>
+                      ))}
+                    </div>
                     <div
                       className="relative rounded-xl overflow-hidden select-none"
                       style={{
-                        width: 12 * CELL,
-                        height: 8 * CELL,
+                        width: gridCols * CELL,
+                        height: gridRows * CELL,
                         backgroundColor: '#0d1720',
                         border: '1px solid #1e2d3d',
                         backgroundImage: `
