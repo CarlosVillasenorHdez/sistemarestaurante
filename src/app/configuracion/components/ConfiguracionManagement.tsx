@@ -153,6 +153,9 @@ export default function ConfiguracionManagement() {
   // Operation settings
   const [ivaPercent, setIvaPercent] = useState(16);
   const [ivaPercentDraft, setIvaPercentDraft] = useState(16);
+  const [currencySymbol, setCurrencySymbol] = useState('$');
+  const [currencyCode, setCurrencyCode] = useState('MXN');
+  const [currencyLocale, setCurrencyLocale] = useState('es-MX');
   const [operacionSaved, setOperacionSaved] = useState(false);
 
   // Business hours
@@ -294,6 +297,9 @@ export default function ConfiguracionManagement() {
           const iva = parseFloat(map.iva_percent);
           setIvaPercent(iva); setIvaPercentDraft(iva);
         }
+        if (map.currency_symbol) setCurrencySymbol(map.currency_symbol);
+        if (map.currency_code) setCurrencyCode(map.currency_code);
+        if (map.currency_locale) setCurrencyLocale(map.currency_locale);
         if (map.restaurant_name) {
           setRestaurantName(map.restaurant_name);
           setRestaurantNameDraft(map.restaurant_name);
@@ -384,6 +390,9 @@ export default function ConfiguracionManagement() {
   async function handleSaveOperacion() {
     await supabase.from('system_config').upsert([
       { config_key: 'iva_percent', config_value: String(ivaPercentDraft) },
+      { config_key: 'currency_symbol', config_value: currencySymbol },
+      { config_key: 'currency_code', config_value: currencyCode },
+      { config_key: 'currency_locale', config_value: currencyLocale },
     ], { onConflict: 'config_key' });
     setIvaPercent(ivaPercentDraft);
     setOperacionSaved(true);
@@ -859,6 +868,58 @@ export default function ConfiguracionManagement() {
                   </div>
                 </div>
               </div>
+
+              {/* Currency configuration */}
+              <div className="rounded-xl p-5 mb-5" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
+                <label className="block text-sm font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.7)' }}>Moneda</label>
+                <p className="text-xs mb-3" style={{ color: 'rgba(255,255,255,0.35)' }}>
+                  Símbolo y código monetario que aparece en tickets, reportes y pantallas
+                </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Símbolo</label>
+                    <input
+                      type="text" maxLength={3} value={currencySymbol}
+                      onChange={(e) => setCurrencySymbol(e.target.value)}
+                      placeholder="$"
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                      style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Código ISO</label>
+                    <select
+                      value={currencyCode}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setCurrencyCode(v);
+                        if (v === 'MXN') { setCurrencySymbol('$'); setCurrencyLocale('es-MX'); }
+                        else if (v === 'EUR') { setCurrencySymbol('€'); setCurrencyLocale('es-ES'); }
+                        else if (v === 'USD') { setCurrencySymbol('$'); setCurrencyLocale('en-US'); }
+                        else if (v === 'GBP') { setCurrencySymbol('£'); setCurrencyLocale('en-GB'); }
+                        else if (v === 'COP') { setCurrencySymbol('$'); setCurrencyLocale('es-CO'); }
+                        else if (v === 'ARS') { setCurrencySymbol('$'); setCurrencyLocale('es-AR'); }
+                      }}
+                      className="w-full px-3 py-2 rounded-lg text-sm outline-none appearance-none"
+                      style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }}
+                    >
+                      <option value="MXN">MXN — Peso Mexicano</option>
+                      <option value="EUR">EUR — Euro</option>
+                      <option value="USD">USD — Dólar Americano</option>
+                      <option value="GBP">GBP — Libra Esterlina</option>
+                      <option value="COP">COP — Peso Colombiano</option>
+                      <option value="ARS">ARS — Peso Argentino</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: 'rgba(255,255,255,0.45)' }}>Formato regional</label>
+                    <div className="px-3 py-2 rounded-lg text-sm" style={{ backgroundColor: '#0f1923', border: '1px solid #1e2d3d', color: 'rgba(255,255,255,0.5)' }}>
+                      {(1234.5).toLocaleString(currencyLocale, { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <SaveButton saved={operacionSaved} onClick={handleSaveOperacion} />
             </div>
           )}

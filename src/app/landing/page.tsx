@@ -115,7 +115,7 @@ export default function LandingPage() {
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#1B3A6B' }}>
                 <ChefHat size={18} className="text-white" />
               </div>
-              <span className="font-bold text-lg" style={{ color: '#1B3A6B' }}>SistemaRest</span>
+              <span className="font-bold text-lg" style={{ color: '#1B3A6B' }}>Aldente</span>
             </div>
             <div className="hidden md:flex items-center gap-8">
               {['Funcionalidades', 'Precios', 'Demo'].map(item => (
@@ -343,9 +343,9 @@ export default function LandingPage() {
             <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#f59e0b' }}>
               <ChefHat size={16} className="text-white" />
             </div>
-            <span className="font-bold text-white">SistemaRest</span>
+            <span className="font-bold text-white">Aldente</span>
           </div>
-          <p className="text-sm text-gray-400">© {new Date().getFullYear()} SistemaRest. Hecho en México 🇲🇽</p>
+          <p className="text-sm text-gray-400">© {new Date().getFullYear()} Aldente. Hecho en México 🇲🇽</p>
           <Link href="/login" className="text-sm text-gray-400 hover:text-white transition-colors">Acceso al sistema</Link>
         </div>
       </footer>

@@ -71,6 +71,7 @@ export interface TicketData {
   showMesero?:      boolean;
   showSubtotal?:    boolean;
   showIva?:         boolean;
+  ivaPercent?:      number; // e.g. 16 for Mexico, 10 for Spain restaurants
   showDiscount?:    boolean;
   showUnitPrice?:   boolean;
 }
@@ -173,7 +174,7 @@ export function buildTicket(data: TicketData): Uint8Array {
   if (show(data.showSubtotal) && data.subtotal !== data.total)
     add(twoCol('Subtotal:', `$${data.subtotal.toFixed(2)}`, width));
   if (show(data.showIva))
-    add(twoCol('IVA (16%):', `$${data.iva.toFixed(2)}`, width));
+    add(twoCol(`IVA (${data.ivaPercent ?? 16}%):`, `$${data.iva.toFixed(2)}`, width));
 
   add(bts(CMD.BOLD_ON, CMD.DOUBLE_HEIGHT));
   add(twoCol('TOTAL:', `$${data.total.toFixed(2)}`, width));
@@ -211,7 +212,7 @@ export function buildTestTicket(
 ): Uint8Array {
   return buildTicket({
     restaurantName:  opts?.restaurantName ?? 'PRUEBA DE IMPRESORA',
-    branchName:      opts?.branchName     ?? 'SistemaRest',
+    branchName:      opts?.branchName     ?? 'Aldente',
     headerLine1:     opts?.headerLine1,
     headerLine2:     opts?.headerLine2,
     orderNumber:     'TEST-001',

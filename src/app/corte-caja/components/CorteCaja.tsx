@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useSysConfig } from '@/hooks/useSysConfig';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { CreditCard, Banknote, TrendingUp, Plus, Minus, ChevronDown, ChevronUp, Printer, Lock, Unlock, Receipt, Users, ShoppingBag,  } from 'lucide-react';
@@ -41,28 +42,44 @@ interface OrderSummary {
   ordenes_canceladas: { id: string; mesa: string; mesero: string; subtotal: number; notes: string | null }[];
 }
 
-const DENOMINACIONES_MXN = [
-  { valor: 1000, label: '$1,000' },
-  { valor: 500,  label: '$500' },
-  { valor: 200,  label: '$200' },
-  { valor: 100,  label: '$100' },
-  { valor: 50,   label: '$50' },
-  { valor: 20,   label: '$20' },
-  { valor: 10,   label: '$10' },
-  { valor: 5,    label: '$5' },
-  { valor: 2,    label: '$2' },
-  { valor: 1,    label: '$1' },
-  { valor: 0.50, label: '$0.50' },
-];
+// Denominations vary by currency — configured per tenant
+const DENOMINACIONES_BY_CURRENCY: Record<string, { valor: number; label: string }[]> = {
+  MXN: [
+    { valor: 1000, label: '$1,000' }, { valor: 500,  label: '$500' },
+    { valor: 200,  label: '$200' },  { valor: 100,  label: '$100' },
+    { valor: 50,   label: '$50' },   { valor: 20,   label: '$20' },
+    { valor: 10,   label: '$10' },   { valor: 5,    label: '$5' },
+    { valor: 2,    label: '$2' },    { valor: 1,    label: '$1' },
+    { valor: 0.50, label: '$0.50' },
+  ],
+  EUR: [
+    { valor: 500, label: '€500' },   { valor: 200,  label: '€200' },
+    { valor: 100, label: '€100' },   { valor: 50,   label: '€50' },
+    { valor: 20,  label: '€20' },    { valor: 10,   label: '€10' },
+    { valor: 5,   label: '€5' },     { valor: 2,    label: '€2' },
+    { valor: 1,   label: '€1' },     { valor: 0.50, label: '€0.50' },
+    { valor: 0.20,label: '€0.20' },  { valor: 0.10, label: '€0.10' },
+  ],
+  USD: [
+    { valor: 100, label: '$100' },   { valor: 50,   label: '$50' },
+    { valor: 20,  label: '$20' },    { valor: 10,   label: '$10' },
+    { valor: 5,   label: '$5' },     { valor: 1,    label: '$1' },
+    { valor: 0.25,label: '¢25' },    { valor: 0.10, label: '¢10' },
+    { valor: 0.05,label: '¢5' },
+  ],
+};
+const DENOMINACIONES_MXN = DENOMINACIONES_BY_CURRENCY.MXN; // fallback alias
 
-function fmt(n: number) {
-  return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmt(n: number, locale = 'es-MX') {
+  return n.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function CorteCaja() {
   const supabase = createClient();
+  const { currencyCode, currencyLocale, currencySymbol } = useSysConfig();
+  const denominaciones_activas = DENOMINACIONES_BY_CURRENCY[currencyCode] ?? DENOMINACIONES_MXN;
   const { tenantId } = useAuth();
   const DEFAULT_TENANT = tenantId ?? '00000000-0000-0000-0000-000000000001';
 
@@ -81,7 +98,7 @@ export default function CorteCaja() {
   const [cierrePor, setCierrePor] = useState('');
   const [notas, setNotas] = useState('');
   const [denominaciones, setDenominaciones] = useState<Record<number, number>>(
-    Object.fromEntries(DENOMINACIONES_MXN.map(d => [d.valor, 0]))
+    Object.fromEntries(denominaciones_activas.map(d => [d.valor, 0]))
   );
   const [cerrando, setCerrando] = useState(false);
   const [showHistorial, setShowHistorial] = useState(false);
@@ -229,7 +246,7 @@ export default function CorteCaja() {
 
   // ── Efectivo contado (calculado desde denominaciones) ──────────────────────
   const efectivoContado = useMemo(() =>
-    DENOMINACIONES_MXN.reduce((s, d) => s + d.valor * (denominaciones[d.valor] || 0), 0),
+    denominaciones_activas.reduce((s, d) => s + d.valor * (denominaciones[d.valor] || 0), 0),
     [denominaciones]
   );
 
@@ -268,7 +285,7 @@ export default function CorteCaja() {
     if (error) { toast.error('Error al cerrar caja: ' + error.message); setCerrando(false); return; }
     toast.success('✅ Corte de caja completado');
     setCerrando(false);
-    setDenominaciones(Object.fromEntries(DENOMINACIONES_MXN.map(d => [d.valor, 0])));
+    setDenominaciones(Object.fromEntries(denominaciones_activas.map(d => [d.valor, 0])));
     setCierrePor('');
     setNotas('');
     await loadCorte();
@@ -522,7 +539,7 @@ export default function CorteCaja() {
 
             {showDenominaciones && (
               <div className="space-y-2">
-                {DENOMINACIONES_MXN.map(d => (
+                {denominaciones_activas.map(d => (
                   <div key={d.valor} className="flex items-center gap-3">
                     <span className="text-sm font-mono font-semibold w-16 text-right" style={{ color: '#374151' }}>{d.label}</span>
                     <div className="flex items-center gap-2 flex-1">
