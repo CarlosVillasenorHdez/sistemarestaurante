@@ -10,7 +10,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'SistemaRestaurante — Gestión Integral para Restaurantes',
+  title: 'Aldente — Gestión Integral para Restaurantes',
   description: 'Plataforma completa para gestionar órdenes, mesas, inventario y personal de tu restaurante desde un solo lugar.',
   icons: {
     icon: [{ url: '/favicon.ico', type: 'image/x-icon' }],

@@ -189,7 +189,7 @@ export default function ReservacionesManagement() {
                 type: 'reservation_confirmation',
                 to: form.guestEmail,
                 data: {
-                  restaurantName: 'SistemaRest',
+                  restaurantName: 'Aldente',
                   guestName: form.guestName,
                   date: new Date(form.reservationDate + 'T12:00:00').toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
                   time: form.reservationTime,

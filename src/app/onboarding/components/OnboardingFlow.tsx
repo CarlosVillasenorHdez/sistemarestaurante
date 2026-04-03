@@ -170,7 +170,7 @@ export default function OnboardingFlow() {
         {currentStep === 1 && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Bienvenido a SistemaRest! 🎉</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Bienvenido a Aldente! 🎉</h2>
               <p className="text-gray-500">Vamos a configurar tu restaurante en pocos pasos. Empieza con los datos básicos.</p>
             </div>
             <div className="space-y-4">
