@@ -230,11 +230,18 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
     return 'Crítico';
   };
 
-  // Suggested prices
+  // Suggested prices: solve for price that gives target REAL margin
+  // Formula: price = primeCost / (1 - overheadPct/100 - targetMargin/100)
+  // This ensures overhead % and margin % are both respected
+  function priceForRealMargin(targetMarginPct: number): number {
+    const denominator = 1 - (overheadPct / 100) - (targetMarginPct / 100);
+    if (denominator <= 0) return 0;
+    return Math.ceil(primeCost / denominator);
+  }
   const suggestedPrices = [
-    { label: '30% costo', multiplier: 1 / 0.30, pct: 70 },
-    { label: '35% costo', multiplier: 1 / 0.35, pct: 65 },
-    { label: '40% costo', multiplier: 1 / 0.40, pct: 60 },
+    { label: '15% margen real', targetMargin: 15, color: '#f59e0b' },
+    { label: '25% margen real', targetMargin: 25, color: '#34d399' },
+    { label: '35% margen real', targetMargin: 35, color: '#22c55e' },
   ];
 
   const handleAddIngredient = async () => {
@@ -439,164 +446,180 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
 
           {/* ── Cost Summary & Price Simulator ── */}
           {recipe.length > 0 && (
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(245,158,11,0.3)' }}>
-              {/* Cost summary header — 3-layer breakdown */}
-              <div className="px-4 py-3" style={{ backgroundColor: 'rgba(245,158,11,0.08)' }}>
-                <p className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'rgba(255,255,255,0.5)' }}>Desglose de Costos</p>
-                <div className="space-y-1.5">
-                  {/* Layer 1: Food cost (ingredients) */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f87171' }} />
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>🥩 Materia Prima (ingredientes)</span>
-                    </div>
-                    <span className="text-sm font-mono font-bold" style={{ color: '#f87171' }}>${totalCost.toFixed(2)}</span>
+            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(245,158,11,0.25)' }}>
+
+              {/* ── Bloque 1: Resumen de Costos ── */}
+              <div className="px-5 pt-4 pb-3" style={{ backgroundColor: 'rgba(255,255,255,0.03)' }}>
+                <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: 'rgba(255,255,255,0.4)' }}>¿Cuánto te cuesta hacerlo?</p>
+
+                {/* Costo de ingredientes — siempre visible */}
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">🥩 Ingredientes</p>
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Materias primas de la receta</p>
                   </div>
-                  {/* Layer 2: Direct labor */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#fb923c' }} />
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>👨‍🍳 Mano de Obra Directa ({(dish as any).preparationTimeMin ?? 15} min)</span>
-                    </div>
-                    <span className="text-sm font-mono font-bold" style={{ color: '#fb923c' }}>
-                      {costConfigLoaded ? `$${laborCost.toFixed(2)}` : '…'}
-                    </span>
+                  <p className="text-lg font-bold font-mono" style={{ color: '#f87171' }}>${totalCost.toFixed(2)}</p>
+                </div>
+
+                {/* Breakdown de ingredientes colapsable */}
+                <div className="space-y-1 mb-3 pl-2 border-l" style={{ borderColor: 'rgba(248,113,113,0.3)' }}>
+                  {recipe.map((item) => {
+                    const itemCost = ((item as any).costPerUnit ?? 0) * item.quantity;
+                    const pct = totalCost > 0 ? (itemCost / totalCost) * 100 : 0;
+                    return (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <span className="text-xs flex-1 truncate" style={{ color: 'rgba(255,255,255,0.5)' }}>{item.ingredientName}</span>
+                        <div className="w-16 h-1 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: 'rgba(248,113,113,0.7)' }} />
+                        </div>
+                        <span className="text-xs font-mono w-12 text-right" style={{ color: 'rgba(255,255,255,0.45)' }}>${itemCost.toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* MO Directa */}
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-semibold text-white">👨‍🍳 Mano de Obra</p>
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Cocinero · {(dish as any).preparationTimeMin ?? 15} min de preparación</p>
                   </div>
-                  {/* Prime cost subtotal */}
-                  <div className="flex items-center justify-between pt-1 border-t" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
-                    <span className="text-xs font-semibold" style={{ color: 'rgba(255,255,255,0.5)' }}>Prime Cost (MP + MO)</span>
-                    <span className="text-sm font-mono font-bold" style={{ color: '#f59e0b' }}>${primeCost.toFixed(2)}</span>
-                  </div>
-                  {/* Layer 3: Overhead */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#a78bfa' }} />
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>🏠 Gastos Indirectos ({overheadPct.toFixed(0)}% del precio)</span>
-                    </div>
-                    <span className="text-sm font-mono font-bold" style={{ color: '#a78bfa' }}>
-                      {costConfigLoaded ? `$${dynamicOverhead.toFixed(2)}` : '…'}
-                    </span>
-                  </div>
-                  {/* Total real cost */}
-                  <div className="flex items-center justify-between pt-1.5 border-t" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-                    <span className="text-xs font-bold text-white">COSTO REAL TOTAL</span>
-                    <span className="text-base font-mono font-bold text-white">
-                      ${totalRealCost.toFixed(2)}
-                    </span>
-                  </div>
-                  <p className="text-xs pt-1" style={{ color: 'rgba(255,255,255,0.25)' }}>
-                    Overhead = {overheadPct.toFixed(0)}% del precio de venta (renta, servicios, marketing). Ajustable en Configuración → Parámetros.
+                  <p className="text-lg font-bold font-mono" style={{ color: '#fb923c' }}>
+                    {costConfigLoaded ? `$${laborCost.toFixed(2)}` : '…'}
                   </p>
+                </div>
+
+                {/* Divisor Prime Cost */}
+                <div className="flex items-center justify-between py-2 px-3 rounded-lg mb-2" style={{ backgroundColor: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
+                  <p className="text-sm font-bold" style={{ color: '#f59e0b' }}>Costo directo total</p>
+                  <p className="text-base font-bold font-mono" style={{ color: '#f59e0b' }}>${primeCost.toFixed(2)}</p>
+                </div>
+
+                {/* Gastos indirectos */}
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">🏠 Gastos del negocio</p>
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Renta, servicios, marketing · {overheadPct.toFixed(0)}% del precio de venta</p>
+                  </div>
+                  <p className="text-lg font-bold font-mono" style={{ color: '#a78bfa' }}>
+                    {costConfigLoaded ? `$${dynamicOverhead.toFixed(2)}` : '…'}
+                  </p>
+                </div>
+
+                {/* Costo Real Total — destacado */}
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl" style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                  <div>
+                    <p className="text-base font-bold text-white">Costo real total</p>
+                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.35)' }}>Lo mínimo que debes cobrar para no perder</p>
+                  </div>
+                  <p className="text-2xl font-bold font-mono text-white">${totalRealCost.toFixed(2)}</p>
                 </div>
               </div>
 
-              {/* Ingredient cost breakdown mini-table */}
-              <div className="px-4 py-3 space-y-1.5" style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}>
-                {recipe.map((item) => {
-                  const itemCost = ((item as any).costPerUnit ?? 0) * item.quantity;
-                  const pct = totalCost > 0 ? (itemCost / totalCost) * 100 : 0;
-                  return (
-                    <div key={item.id} className="flex items-center gap-2">
-                      <span className="text-xs flex-1 truncate" style={{ color: 'rgba(255,255,255,0.6)' }}>{item.ingredientName}</span>
-                      <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: '#f59e0b' }} />
-                      </div>
-                      <span className="text-xs font-mono w-14 text-right" style={{ color: 'rgba(255,255,255,0.5)' }}>${itemCost.toFixed(2)}</span>
-                      <span className="text-xs w-8 text-right" style={{ color: 'rgba(255,255,255,0.3)' }}>{pct.toFixed(0)}%</span>
-                    </div>
-                  );
-                })}
-              </div>
+              {/* ── Bloque 2: Simulador de Precio ── */}
+              <div className="px-5 pt-4 pb-5 border-t space-y-5" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
+                <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.4)' }}>¿A cuánto lo vendes?</p>
 
-              {/* Price Simulator */}
-              <div className="px-4 py-4 border-t space-y-4" style={{ borderColor: 'rgba(245,158,11,0.2)', backgroundColor: 'rgba(255,255,255,0.03)' }}>
-                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'rgba(255,255,255,0.5)' }}>🎯 Simulador de Precio</p>
-
-                {/* Slider + input */}
+                {/* Precio selector */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Precio de venta</label>
+                    <span className="text-sm" style={{ color: 'rgba(255,255,255,0.6)' }}>Precio de venta</span>
                     <div className="flex items-center gap-1">
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>$</span>
+                      <span className="text-sm" style={{ color: 'rgba(255,255,255,0.4)' }}>$</span>
                       <input
-                        type="number"
-                        min={0}
-                        step={0.5}
+                        type="number" min={0} step={1}
                         value={simulatorPrice || ''}
                         onChange={(e) => setSimulatorPrice(parseFloat(e.target.value) || 0)}
-                        className="w-20 text-right px-2 py-1 rounded-lg text-sm font-bold outline-none"
-                        style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', color: 'white' }}
+                        className="w-24 text-right px-2 py-1.5 rounded-lg text-lg font-bold outline-none"
+                        style={{ backgroundColor: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', color: 'white' }}
                       />
                     </div>
                   </div>
                   <input
                     type="range"
-                    min={totalRealCost > 0 ? Math.round(totalRealCost * 1.1) : 0}
-                    max={Math.max(totalRealCost * 5, dish.price * 2, 200)}
-                    step={0.5}
+                    min={totalRealCost > 0 ? Math.round(totalRealCost) : 0}
+                    max={Math.max(totalRealCost * 4, dish.price * 2, 300)}
+                    step={1}
                     value={simulatorPrice}
                     onChange={(e) => setSimulatorPrice(parseFloat(e.target.value))}
                     className="w-full h-2 rounded-full appearance-none cursor-pointer"
-                    style={{ accentColor: '#f59e0b' }}
+                    style={{ accentColor: realMargin >= 20 ? '#22c55e' : realMargin >= 10 ? '#f59e0b' : '#ef4444' }}
                   />
                 </div>
 
-                {/* Margin metrics — 4 cards */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Food Cost %</p>
-                    <p className="text-base font-bold" style={{ color: foodCostPct < 30 ? '#34d399' : foodCostPct < 40 ? '#f59e0b' : '#f87171' }}>{foodCostPct.toFixed(1)}%</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Target: &lt;30%</p>
+                {/* Resultado principal — Lo que se lleva */}
+                <div className="rounded-xl px-4 py-4" style={{
+                  backgroundColor: realMargin >= 20 ? 'rgba(34,197,94,0.1)' : realMargin >= 10 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
+                  border: `1px solid ${realMargin >= 20 ? 'rgba(34,197,94,0.3)' : realMargin >= 10 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}`
+                }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-bold" style={{ color: realMargin >= 20 ? '#22c55e' : realMargin >= 10 ? '#f59e0b' : '#ef4444' }}>
+                      {realMargin >= 20 ? '✅ Buen precio' : realMargin >= 10 ? '⚠️ Margen ajustado' : realMargin >= 0 ? '🔴 Margen muy bajo' : '❌ Perdiendo dinero'}
+                    </p>
+                    <p className="text-2xl font-bold font-mono" style={{ color: realMargin >= 20 ? '#22c55e' : realMargin >= 10 ? '#f59e0b' : '#ef4444' }}>
+                      {realMargin.toFixed(1)}%
+                    </p>
                   </div>
-                  <div className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Prime Cost %</p>
-                    <p className="text-base font-bold" style={{ color: primeCostPct < 60 ? '#34d399' : primeCostPct < 70 ? '#f59e0b' : '#f87171' }}>{primeCostPct.toFixed(1)}%</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Target: &lt;60%</p>
+                  <div className="flex items-center justify-between text-sm">
+                    <span style={{ color: 'rgba(255,255,255,0.5)' }}>Te quedas de ganancia:</span>
+                    <span className="font-bold font-mono text-white">${realProfit.toFixed(2)} por platillo</span>
                   </div>
-                  <div className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Margen s/receta</p>
-                    <p className="text-base font-bold" style={{ color: getMarginColor(currentMargin) }}>{currentMargin.toFixed(1)}%</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Solo ingredientes</p>
-                  </div>
-                  <div className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(34,197,94,0.15)' }}>
-                    <p className="text-xs mb-1" style={{ color: 'rgba(255,255,255,0.4)' }}>Margen REAL</p>
-                    <p className="text-base font-bold" style={{ color: getMarginColor(realMargin) }}>{realMargin.toFixed(1)}%</p>
-                    <p className="text-xs" style={{ color: 'rgba(255,255,255,0.3)' }}>Con costo total</p>
-                  </div>
-                </div>
-
-                {/* Margin bar */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Margen bruto</span>
-                    <span className="text-xs font-bold" style={{ color: getMarginColor(realMargin) }}>{realMargin.toFixed(1)}% real</span>
-                  </div>
-                  <div className="w-full h-3 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(Math.max(realMargin, 0), 100)}%`, backgroundColor: getMarginColor(realMargin) }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-1 text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
-                    <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+                  {/* Visual bar */}
+                  <div className="mt-3">
+                    <div className="w-full h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
+                      <div className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(Math.max(realMargin, 0), 100)}%`,
+                          backgroundColor: realMargin >= 20 ? '#22c55e' : realMargin >= 10 ? '#f59e0b' : '#ef4444'
+                        }} />
+                    </div>
+                    <div className="flex justify-between mt-1 text-xs" style={{ color: 'rgba(255,255,255,0.2)' }}>
+                      <span>0%</span><span>10%</span><span>20%</span><span>35%</span><span>50%+</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Suggested prices */}
-                {totalCost > 0 && (
+                {/* Desglose de hacia dónde va cada peso */}
+                {simulatorPrice > 0 && (
                   <div>
-                    <p className="text-xs mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Precios sugeridos:</p>
-                    <div className="flex gap-2 flex-wrap">
+                    <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>De cada ${simulatorPrice.toFixed(0)} que cobras:</p>
+                    <div className="space-y-1.5">
+                      {[
+                        { label: 'Ingredientes', amount: totalCost, pct: foodCostPct, color: '#f87171' },
+                        { label: 'Mano de obra', amount: laborCost, pct: simulatorPrice > 0 ? (laborCost/simulatorPrice)*100 : 0, color: '#fb923c' },
+                        { label: 'Gastos del negocio', amount: dynamicOverhead, pct: overheadPct, color: '#a78bfa' },
+                        { label: 'Tu ganancia', amount: realProfit, pct: realMargin, color: realMargin >= 0 ? '#22c55e' : '#ef4444' },
+                      ].map(row => (
+                        <div key={row.label} className="flex items-center gap-3">
+                          <span className="text-xs w-32 flex-shrink-0" style={{ color: 'rgba(255,255,255,0.6)' }}>{row.label}</span>
+                          <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}>
+                            <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(Math.max(row.pct, 0), 100)}%`, backgroundColor: row.color }} />
+                          </div>
+                          <span className="text-xs font-mono w-10 text-right" style={{ color: row.color }}>{Math.max(row.pct, 0).toFixed(0)}%</span>
+                          <span className="text-xs font-mono w-14 text-right" style={{ color: 'rgba(255,255,255,0.5)' }}>${Math.max(row.amount, 0).toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Precios sugeridos */}
+                {primeCost > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,0.4)' }}>Precios recomendados:</p>
+                    <div className="grid grid-cols-3 gap-2">
                       {suggestedPrices.map((s) => {
-                        const price = Math.ceil(totalCost * s.multiplier);
+                        const price = priceForRealMargin(s.targetMargin);
+                        if (price <= 0) return null;
                         return (
                           <button
                             key={s.label}
                             onClick={() => setSimulatorPrice(price)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:brightness-110"
-                            style={{ backgroundColor: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}
+                            className="flex flex-col items-center py-2.5 px-2 rounded-xl text-center transition-all hover:brightness-110"
+                            style={{ backgroundColor: `${s.color}18`, border: `1px solid ${s.color}40` }}
                           >
-                            ${price} <span style={{ color: 'rgba(255,255,255,0.4)' }}>({s.label} · {s.pct}% margen)</span>
+                            <span className="text-base font-bold font-mono" style={{ color: s.color }}>${price}</span>
+                            <span className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{s.targetMargin}% ganancia</span>
                           </button>
                         );
                       })}
@@ -604,20 +627,30 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
                   </div>
                 )}
 
-                {/* Comparison with current price */}
-                {dish.price > 0 && (
-                  <div className="flex items-center justify-between px-3 py-2 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                    <span className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Precio actual en menú:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-white">${dish.price.toFixed(2)}</span>
-                      {dish.price > 0 && totalCost > 0 && (
-                        <span className="text-xs px-2 py-0.5 rounded-full" style={{
-                          backgroundColor: ((dish.price - totalCost) / dish.price) * 100 >= 45 ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
-                          color: ((dish.price - totalCost) / dish.price) * 100 >= 45 ? '#34d399' : '#f87171',
-                        }}>
-                          {(((dish.price - totalCost) / dish.price) * 100).toFixed(1)}% margen
-                        </span>
-                      )}
+                {/* Precio actual vs recomendado */}
+                {dish.price > 0 && totalRealCost > 0 && (
+                  <div className="rounded-xl px-4 py-3" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Precio actual en menú</p>
+                        <p className="text-lg font-bold font-mono text-white">${dish.price.toFixed(2)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>Ganancia real actual</p>
+                        {(() => {
+                          const currentOverhead = dish.price * (overheadPct / 100);
+                          const currentRealCost = primeCost + currentOverhead;
+                          const currentRealMargin = ((dish.price - currentRealCost) / dish.price) * 100;
+                          const currentRealProfit = dish.price - currentRealCost;
+                          return (
+                            <div>
+                              <p className="text-lg font-bold font-mono" style={{ color: currentRealMargin >= 20 ? '#22c55e' : currentRealMargin >= 10 ? '#f59e0b' : '#ef4444' }}>
+                                {currentRealMargin.toFixed(1)}% · ${currentRealProfit.toFixed(2)}
+                              </p>
+                            </div>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 )}
