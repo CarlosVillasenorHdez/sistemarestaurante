@@ -86,7 +86,9 @@ export default function RootLayout({
         */}
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
-      </head>
+
+        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fsistemares5994back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.17" />
+        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" /></head>
       <body>
         <AuthProvider>
           {children}
@@ -100,9 +102,6 @@ export default function RootLayout({
             },
           }}
         />
-
-        <script type="module" async src="https://static.rocket.new/rocket-web.js?_cfg=https%3A%2F%2Fsistemares5994back.builtwithrocket.new&_be=https%3A%2F%2Fappanalytics.rocket.new&_v=0.1.17" />
-        <script type="module" defer src="https://static.rocket.new/rocket-shot.js?v=0.0.2" />
       </body>
     </html>
   );
