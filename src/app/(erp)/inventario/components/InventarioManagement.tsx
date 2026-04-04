@@ -4,8 +4,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Plus, Search, Pencil, Trash2, X, AlertTriangle, Package, BoxSelect, History, ExternalLink, Phone, TrendingDown, TrendingUp, ArrowDownCircle, ArrowUpCircle, RefreshCw, Bell, Scale, BarChart2, Download } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import AnalisisDesperdicioTab from '@/app/inventario/components/AnalisisDesperdicioTab';
-import ForecastingChart from '@/app/inventario/components/ForecastingChart';
+import AnalisisDesperdicioTab from '@/app/(erp)/inventario/components/AnalisisDesperdicioTab';
+import ForecastingChart from '@/app/(erp)/inventario/components/ForecastingChart';
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
