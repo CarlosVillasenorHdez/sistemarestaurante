@@ -46,7 +46,7 @@ function SaveButton({ saved, onClick, label }: { saved: boolean; onClick: () => 
   );
 }
 
-export default function ConfigOperaciones() {
+export default function ConfigOperaciones({ activeSection }: { activeSection: string }) {
   const supabase = createClient();
   const printer = usePrinter();
 
@@ -228,8 +228,8 @@ export default function ConfigOperaciones() {
   }, [loadPrinterConfig, supabase]);
 
   return (
-    <div className="space-y-8">
-      <div className="max-w-2xl">
+    <div className="max-w-2xl">
+      {activeSection === 'horarios' && <div>
               <SectionTitle icon={Clock} title="Horarios de Atención" />
               <div className="rounded-xl overflow-hidden mb-5" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
                 <div className="grid grid-cols-4 gap-4 px-5 py-3 text-xs font-semibold" style={{ backgroundColor: '#0f1923', color: 'rgba(255,255,255,0.4)' }}>
@@ -249,8 +249,8 @@ export default function ConfigOperaciones() {
                 ))}
               </div>
               <SaveButton saved={hoursSaved} onClick={handleSaveHours} />
-            </div>
-      <div className="max-w-2xl">
+            </div>}
+      {activeSection === 'impresora' && <div className="max-w-2xl">
               <SectionTitle icon={Printer} title="Configuración de Impresora de Tickets" />
 
               {printerLoading ? (
@@ -609,11 +609,11 @@ export default function ConfigOperaciones() {
                       )
                     )}
 
-                    <SaveButton saved={printerSaved} onClick={handleSavePrinter} />
+                    <SaveButton saved={printerSaved} onClick={() => handleSavePrinter()} />
                   </div>
                 </>
               )}
-            </div>
+            </div>}
     </div>
   );
 }

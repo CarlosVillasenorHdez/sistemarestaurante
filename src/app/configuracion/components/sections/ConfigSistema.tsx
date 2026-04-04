@@ -13,8 +13,10 @@ function SectionTitle({ icon: Icon, title, subtitle }: { icon: React.ElementType
   return (
     <div className="flex items-center gap-2 mb-5">
       <Icon size={18} style={{ color: '#f59e0b' }} />
-      <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>{title}</h2>
-      {subtitle && <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{subtitle}</p>}
+      <div>
+        <h2 className="text-base font-bold" style={{ color: '#f1f5f9' }}>{title}</h2>
+        {subtitle && <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.4)' }}>{subtitle}</p>}
+      </div>
     </div>
   );
 }
@@ -29,7 +31,7 @@ function SaveButton({ saved, onClick, label }: { saved: boolean; onClick: () => 
   );
 }
 
-export default function ConfigSistema() {
+export default function ConfigSistema({ activeSection }: { activeSection: string }) {
   const supabase = createClient();
   const { appUser } = useAuth();
 
@@ -63,13 +65,11 @@ export default function ConfigSistema() {
       if (!data) return;
       const map: Record<string, string> = {};
       data.forEach((r: any) => { map[r.config_key] = r.config_value; });
-
       const loaded = { ...DEFAULT_FEATURES };
       Object.entries(FEATURE_KEYS).forEach(([feat, key]) => {
         if (key in map) loaded[feat as keyof Features] = map[key] === 'true';
       });
       setFeatures(loaded);
-
       if (map['loyalty_name']) setLoyaltyName(map['loyalty_name']);
       if (map['loyalty_pesos_per_point']) setLoyaltyPesosPerPoint(Number(map['loyalty_pesos_per_point']));
       if (map['loyalty_point_value']) setLoyaltyPointValue(Number(map['loyalty_point_value']));
@@ -78,7 +78,8 @@ export default function ConfigSistema() {
       if (map['loyalty_max_redeem_pct']) setLoyaltyMaxRedeemPct(Number(map['loyalty_max_redeem_pct']));
       if (map['loyalty_levels']) { try { setLoyaltyLevels(JSON.parse(map['loyalty_levels'])); } catch { /* ignore */ } }
     });
-  }, [supabase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
 
   const handleSaveFeatures = async () => {
@@ -138,10 +139,7 @@ export default function ConfigSistema() {
         { onConflict: 'config_key' }
       );
 
-      // Reset local layout state
-      // Layout cleared in DB — ConfigLayout will reload on next visit
-      
-
+      // Layout reset in DB — ConfigLayout reloads on next mount
       setResetModal(false);
       setResetPassword('');
       setResetSuccess(true);
@@ -156,8 +154,9 @@ export default function ConfigSistema() {
   // ── Save layout ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-8">
-      <div className="max-w-2xl space-y-4">
+    <div className="max-w-2xl">
+      {activeSection === 'funcionalidades' && (
+        <div className="max-w-2xl space-y-4">
               <SectionTitle
                 icon={Zap}
                 title="Funcionalidades del Sistema"
@@ -207,7 +206,9 @@ export default function ConfigSistema() {
                 )}
               </div>
             </div>
-      <div className="max-w-2xl space-y-5">
+      )}
+      {activeSection === 'lealtad_config' && (
+        <div className="max-w-2xl space-y-5">
               <SectionTitle
                 icon={Star}
                 title="Configuración del Programa de Lealtad"
@@ -347,7 +348,9 @@ export default function ConfigSistema() {
                 {loyaltySaved && <span className="text-sm font-semibold text-green-600">✓ Configuración guardada</span>}
               </div>
             </div>
-      <div className="max-w-2xl">
+      )}
+      {activeSection === 'sistema' && (
+        <div className="max-w-2xl">
               <SectionTitle icon={Settings2} title="Configuración del Sistema" />
 
               {/* Reset system */}
@@ -380,9 +383,8 @@ export default function ConfigSistema() {
                 </button>
               </div>
             </div>
-      <div>
-              <UsuariosManagement />
-            </div>
+      )}
+      {activeSection === 'usuarios' && <UsuariosManagement />}
     </div>
   );
 }
