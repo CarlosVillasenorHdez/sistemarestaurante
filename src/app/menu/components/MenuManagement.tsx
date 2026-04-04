@@ -135,8 +135,9 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
   const [addQty, setAddQty] = useState<number>(0);
   const [addNotes, setAddNotes] = useState('');
   const [simulatorPrice, setSimulatorPrice] = useState<number>(dish.price);
-  const [laborCost, setLaborCost]     = useState<number>(0);
-  const [overheadCost, setOverheadCost] = useState<number>(0);
+  const [laborCost, setLaborCost]       = useState<number>(0);
+  const [overheadCost, setOverheadCost]   = useState<number>(0);
+  const [overheadPct, setOverheadPct]     = useState<number>(35);
   const [costConfigLoaded, setCostConfigLoaded] = useState(false);
 
   const fetchRecipe = useCallback(async () => {
@@ -164,12 +165,13 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
   const fetchCostBreakdown = useCallback(async () => {
     const { data } = await supabase
       .from('v_dish_cost_summary')
-      .select('labor_cost, overhead_cost')
+      .select('labor_cost, overhead_cost, overhead_pct, ingredient_cost')
       .eq('dish_id', dish.id)
       .single();
     if (data) {
       setLaborCost(Number((data as any).labor_cost ?? 0));
-      setOverheadCost(Number((data as any).overhead_cost ?? 0));
+      setOverheadPct(Number((data as any).overhead_pct ?? 35));
+      // Overhead recalculated dynamically from current simulatorPrice below
     }
     setCostConfigLoaded(true);
   }, [dish.id, supabase]);
@@ -191,7 +193,8 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
   }, 0);
 
   const primeCost  = totalCost + laborCost;                           // food + MO directa
-  const totalRealCost = primeCost + overheadCost;                    // costo total real
+  const dynamicOverhead = simulatorPrice > 0 ? simulatorPrice * (overheadPct / 100) : overheadCost;
+  const totalRealCost = primeCost + dynamicOverhead;                 // costo total real
   const currentMargin = simulatorPrice > 0 ? ((simulatorPrice - totalCost) / simulatorPrice) * 100 : 0;
   const realMargin    = simulatorPrice > 0 ? ((simulatorPrice - totalRealCost) / simulatorPrice) * 100 : 0;
   const currentProfit = simulatorPrice - totalCost;
@@ -468,19 +471,22 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#a78bfa' }} />
-                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>🏠 Gastos Indirectos (overhead)</span>
+                      <span className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>🏠 Gastos Indirectos ({overheadPct.toFixed(0)}% del precio)</span>
                     </div>
                     <span className="text-sm font-mono font-bold" style={{ color: '#a78bfa' }}>
-                      {costConfigLoaded ? `$${overheadCost.toFixed(2)}` : '…'}
+                      {costConfigLoaded ? `$${dynamicOverhead.toFixed(2)}` : '…'}
                     </span>
                   </div>
                   {/* Total real cost */}
                   <div className="flex items-center justify-between pt-1.5 border-t" style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
                     <span className="text-xs font-bold text-white">COSTO REAL TOTAL</span>
                     <span className="text-base font-mono font-bold text-white">
-                      {costConfigLoaded ? `$${totalRealCost.toFixed(2)}` : `$${totalCost.toFixed(2)}`}
+                      ${totalRealCost.toFixed(2)}
                     </span>
                   </div>
+                  <p className="text-xs pt-1" style={{ color: 'rgba(255,255,255,0.25)' }}>
+                    Overhead = {overheadPct.toFixed(0)}% del precio de venta (renta, servicios, marketing). Ajustable en Configuración → Parámetros.
+                  </p>
                 </div>
               </div>
 
