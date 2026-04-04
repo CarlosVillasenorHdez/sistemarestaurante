@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { useAudit } from '@/hooks/useAudit';
 import { useSysConfig } from '@/hooks/useSysConfig';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -78,6 +79,7 @@ function fmt(n: number, locale = 'es-MX') {
 
 export default function CorteCaja() {
   const supabase = createClient();
+  const { log: auditLog } = useAudit();
   const { currencyCode, currencyLocale, currencySymbol } = useSysConfig();
   const denominaciones_activas = DENOMINACIONES_BY_CURRENCY[currencyCode] ?? DENOMINACIONES_MXN;
   const { tenantId } = useAuth();
