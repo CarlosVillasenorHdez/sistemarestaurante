@@ -6,6 +6,7 @@ import {
   ChevronDown, UtensilsCrossed, BookOpen, FlaskConical, Minus,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { useAudit } from '@/hooks/useAudit';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -127,6 +128,7 @@ function DeleteConfirmModal({ dish, onConfirm, onCancel }: { dish: Dish; onConfi
 
 function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: () => void; onPriceUpdate: (dishId: string, newPrice: number) => void }) {
   const supabase = createClient();
+  const { log: auditLog } = useAudit();
   const [recipe, setRecipe] = useState<RecipeItem[]>([]);
   const [allIngredients, setAllIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -211,6 +213,13 @@ function RecipeModal({ dish, onClose, onPriceUpdate }: { dish: Dish; onClose: ()
         .update({ price: simulatorPrice, updated_at: new Date().toISOString() })
         .eq('id', dish.id);
       if (error) throw error;
+      await auditLog({
+        action: 'precio_cambiado', entity: 'dishes', entityId: dish.id,
+        entityName: dish.name,
+        oldValue: { price: dish.price },
+        newValue: { price: simulatorPrice },
+        details: `Precio cambiado de $${dish.price.toFixed(2)} a $${simulatorPrice.toFixed(2)}`,
+      });
       onPriceUpdate(dish.id, simulatorPrice);
       alert(`Precio de ${dish.name} actualizado a $${simulatorPrice.toFixed(2)} en el menú.`);
     } catch (err: any) {
@@ -990,6 +999,8 @@ export default function MenuManagement() {
     setDeletingDish(null);
     await fetchDishes();
   };
+
+  const { log: auditLog } = useAudit();
 
   const handleToggle = async (id: string) => {
     const dish = dishes.find((d) => d.id === id);

@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import OrderDetailModal from './OrderDetailModal';
 import CancelOrderModal from './CancelOrderModal';
 import { createClient } from '@/lib/supabase/client';
+import { useAudit } from '@/hooks/useAudit';
 import { useBranch } from '@/hooks/useBranch';
 
 export type OrderStatus = 'abierta' | 'preparacion' | 'lista' | 'cerrada' | 'cancelada';
@@ -114,6 +115,7 @@ export default function OrdersTable() {
 
   const supabase = createClient();
   const { branch: activeBranch } = useBranch();
+  const { log: auditLog } = useAudit();
 
   const fetchOrders = useCallback(async () => {
     setLoading(true);
@@ -241,6 +243,7 @@ export default function OrdersTable() {
   };
 
   const handleCancelConfirm = async (orderId: string, reason: string, cancelType: 'sin_costo' | 'con_costo') => {
+    const order = orders.find((o) => o.id === orderId);
     await supabase.from('orders').update({
       status: 'cancelada',
       cancel_type: cancelType,
@@ -248,6 +251,15 @@ export default function OrdersTable() {
       notes: reason,
       updated_at: new Date().toISOString(),
     }).eq('id', orderId);
+    // Audit trail
+    await auditLog({
+      action: cancelType === 'con_costo' ? 'merma_registrada' : 'orden_cancelada',
+      entity: 'orders', entityId: orderId,
+      entityName: order ? `${order.mesa} · ${order.mesero}` : orderId,
+      oldValue: { status: order?.status, total: order?.total },
+      newValue: { status: 'cancelada', cancel_type: cancelType },
+      details: reason,
+    });
     setCancelOrder(null);
     const label = cancelType === 'con_costo' ? '⚠️ Merma registrada' : 'Orden cancelada';
     toast.success(`${label} — ${orderId}. Motivo: "${reason}"`);

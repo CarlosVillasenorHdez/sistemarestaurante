@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { useReportData, DateRange, DishSales, HourlySales, BasketPair, StaffPerformance, DishCOGS, PeakPrediction } from '@/hooks/useReportData';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area, Legend } from 'recharts';
 import { Calendar, Download, TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, Clock, ShoppingCart, Award, ChefHat, AlertTriangle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -19,62 +20,6 @@ const Trash2Icon = ({ size, style }: { size: number; style?: React.CSSProperties
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type DateRange = 'hoy' | 'semana' | 'mes' | 'personalizado';
-
-interface DishSales {
-  nombre: string;
-  cantidad: number;
-  ingresos: number;
-  categoria: string;
-}
-
-interface HourlySales {
-  hora: string;
-  ventas: number;
-  ordenes: number;
-}
-
-interface BasketPair {
-  producto_a: string;
-  producto_b: string;
-  frecuencia: number;
-  confianza: number;
-  lift: number;
-  precio_a: number;
-  precio_b: number;
-}
-
-interface StaffPerformance {
-  nombre: string;
-  rol: string;
-  ordenes: number;
-  horas: number;
-  ordenesHora: number;
-  ventasTotal: number;
-  satisfaccion: number;
-  turno: string;
-}
-
-interface DishCOGS {
-  nombre: string;
-  categoria: string;
-  precioVenta: number;
-  costoIngredientes: number;
-  margenBruto: number;
-  margenPct: number;
-  unidadesVendidas: number;
-  contribucionTotal: number;
-  hasRealCost?: boolean;
-}
-
-interface PeakPrediction {
-  hora: string;
-  demandaActual: number;
-  demandaPredicha: number;
-  confianza: number;
-  recomendacion: string;
-}
 
 interface PLItem {
   concepto: string;
@@ -238,24 +183,18 @@ export default function ReportesManagement() {
   const [monthlyPayroll, setMonthlyPayroll] = useState<number>(98400);
   const [gastosOpMensual, setGastosOpMensual] = useState<{ concepto: string; monto: number }[]>([]);
   const [depMensualTotal, setDepMensualTotal] = useState<number>(8400);
-  const [realCogsData, setRealCogsData] = useState<DishCOGS[]>([]);
   const [cogsLoading, setCogsLoading] = useState(true);
 
-  // Dynamic data states (loaded from Supabase)
-  const [topDishesData, setTopDishesData] = useState<DishSales[]>([]);
-  const [worstDishesData, setWorstDishesData] = useState<DishSales[]>([]);
-  const [hourlyData, setHourlyData] = useState<HourlySales[]>([]);
-  const [staffPerformanceData, setStaffPerformanceData] = useState<StaffPerformance[]>([]);
   const [totalSalesData, setTotalSalesData] = useState<{ periodo: string; ventas: number; meta: number }[]>([]);
-  const [basketPairs, setBasketPairs] = useState<BasketPair[]>([]);
 
-  const [cogsData, setCogsData] = useState<DishCOGS[]>([]);
-  const [peakChartData, setPeakChartData] = useState<{ hora: string; actual: number; predicho: number }[]>([]);
+  // useReportData: heavy loaders extracted to hook
+  const {
+    topDishesData, worstDishesData, hourlyData,
+    staffPerformanceData: staffPerformanceData,
+    cogsData, peakChartData, basketPairs,
+  } = useReportData(dateRange, customStart, customEnd);
 
   // Real data states
-  const [realTopDishes, setRealTopDishes] = useState<DishSales[]>([]);
-  const [realWorstDishes, setRealWorstDishes] = useState<DishSales[]>([]);
-  const [realHourlyData, setRealHourlyData] = useState<HourlySales[]>([]);
   const [realStaffData, setRealStaffData] = useState<StaffPerformance[]>([]);
   const [realKpis, setRealKpis] = useState<{ ventas: number; ordenes: number; ticket: number; clientes: number } | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
@@ -388,12 +327,8 @@ export default function ReportesManagement() {
           }));
 
           const sorted = [...allDishes].sort((a, b) => b.cantidad - a.cantidad);
-          setRealTopDishes(sorted.slice(0, 10));
-          setRealWorstDishes(sorted.slice(-10).reverse());
         }
       } else {
-        setRealTopDishes([]);
-        setRealWorstDishes([]);
       }
 
       // Hourly sales from orders in range
@@ -410,13 +345,6 @@ export default function ReportesManagement() {
           hourBuckets[label].ordenes += 1;
         }
       });
-      setRealHourlyData(
-        Object.entries(hourBuckets).map(([hora, v]) => ({
-          hora,
-          ventas: Math.round(v.ventas),
-          ordenes: v.ordenes,
-        }))
-      );
 
       // Staff performance: group orders by mesero
       const meseroMap: Record<string, { ordenes: number; ventas: number }> = {};
@@ -449,242 +377,8 @@ export default function ReportesManagement() {
     fetchRealData();
   }, [fetchRealData]);
 
-  useEffect(() => {
-    async function loadReportData() {
-      const now = new Date();
-      let startDate: string;
 
-      if (dateRange === 'hoy') startDate = now.toISOString().split('T')[0];
-      else if (dateRange === 'semana') { const d = new Date(now); d.setDate(d.getDate() - 7); startDate = d.toISOString().split('T')[0]; }
-      else if (dateRange === 'mes') { const d = new Date(now); d.setDate(1); startDate = d.toISOString().split('T')[0]; }
-      else startDate = customStart;
 
-      const endDate = dateRange === 'personalizado' ? customEnd : now.toISOString().split('T')[0];
-
-      const [{ data: itemsData }, { data: ordersData }] = await Promise.all([
-        supabase.from('order_items').select('name, qty, price, created_at').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59').limit(5000),
-        supabase.from('orders').select('total, mesero, closed_at, created_at').eq('status', 'cerrada').gte('created_at', startDate).lte('created_at', endDate + 'T23:59:59').limit(2000),
-      ]);
-
-      // Top y worst dishes
-      const dishMap: Record<string, { cantidad: number; ingresos: number }> = {};
-      (itemsData || []).forEach((i) => {
-        if (!dishMap[i.name]) dishMap[i.name] = { cantidad: 0, ingresos: 0 };
-        dishMap[i.name].cantidad += i.qty;
-        dishMap[i.name].ingresos += i.qty * Number(i.price);
-      });
-
-      const sorted = Object.entries(dishMap)
-        .map(([nombre, v]) => ({ nombre, cantidad: v.cantidad, ingresos: v.ingresos, categoria: '' }))
-        .sort((a, b) => b.cantidad - a.cantidad);
-
-      setTopDishesData(sorted.slice(0, 10));
-      setWorstDishesData(sorted.slice(-10).reverse());
-
-      // Hourly data
-      const hourMap: Record<string, { ventas: number; ordenes: number }> = {};
-      (ordersData || []).forEach((o) => {
-        let h = o.closed_at ? o.closed_at.substring(11, 13) + ':00' : '00:00';
-        if (!hourMap[h]) hourMap[h] = { ventas: 0, ordenes: 0 };
-        hourMap[h].ventas += Number(o.total);
-        hourMap[h].ordenes += 1;
-      });
-      setHourlyData(Object.entries(hourMap).sort().map(([hora, v]) => ({ hora, ...v })));
-
-      // Staff performance
-      const staffMap: Record<string, { ordenes: number; ventasTotal: number }> = {};
-      (ordersData || []).forEach((o) => {
-        const m = o.mesero || 'Sin asignar';
-        if (!staffMap[m]) staffMap[m] = { ordenes: 0, ventasTotal: 0 };
-        staffMap[m].ordenes += 1;
-        staffMap[m].ventasTotal += Number(o.total);
-      });
-
-      setStaffPerformanceData(
-        Object.entries(staffMap).map(([nombre, v]) => ({
-          nombre, rol: 'Mesero', ordenes: v.ordenes, horas: 8,
-          ordenesHora: Math.round((v.ordenes / 8) * 10) / 10,
-          ventasTotal: v.ventasTotal, satisfaccion: 0, turno: 'Mixto',
-        }))
-      );
-    }
-
-    loadReportData();
-  }, [dateRange, customStart, customEnd]);
-
-  useEffect(() => {
-    async function loadCOGSAndPeak() {
-      const hoy = new Date().toISOString().split('T')[0];
-      const hace30 = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
-
-      // COGS: cruzar dish_recipes con ingredients para calcular costo
-      const { data: recipes } = await supabase
-        .from('dish_recipes')
-        .select('dish_id, quantity, ingredients(name, cost, unit), dishes(name, price, category)');
-
-      const { data: soldItems } = await supabase
-        .from('order_items')
-        .select('name, qty')
-        .gte('created_at', hace30);
-
-      if (recipes) {
-        const costMap: Record<string, number> = {};
-        const dishMeta: Record<string, { nombre: string; categoria: string; precioVenta: number }> = {};
-
-        recipes.forEach((r: any) => {
-          const dishId = r.dish_id;
-          const ingCost = Number(r.ingredients?.cost || 0);
-          const qty = Number(r.quantity || 0);
-          costMap[dishId] = (costMap[dishId] || 0) + ingCost * qty;
-          if (r.dishes) {
-            dishMeta[dishId] = {
-              nombre: r.dishes.name,
-              categoria: r.dishes.category,
-              precioVenta: Number(r.dishes.price),
-            };
-          }
-        });
-
-        const soldMap: Record<string, number> = {};
-        (soldItems || []).forEach((i: any) => {
-          soldMap[i.name] = (soldMap[i.name] || 0) + i.qty;
-        });
-
-        const cogs: DishCOGS[] = Object.entries(dishMeta).map(([id, meta]) => {
-          const costo = costMap[id] || 0;
-          const margenBruto = meta.precioVenta - costo;
-          const margenPct = meta.precioVenta > 0 ? (margenBruto / meta.precioVenta) * 100 : 0;
-          const unidades = soldMap[meta.nombre] || 0;
-          return {
-            nombre: meta.nombre,
-            categoria: meta.categoria,
-            precioVenta: meta.precioVenta,
-            costoIngredientes: costo,
-            margenBruto,
-            margenPct,
-            unidadesVendidas: unidades,
-            contribucionTotal: margenBruto * unidades,
-          };
-        }).filter(d => d.precioVenta > 0).sort((a, b) => b.contribucionTotal - a.contribucionTotal);
-
-        setCogsData(cogs);
-      }
-
-      // Peak chart: promediar ventas por hora de los últimos 30 días
-      const { data: ordersHistory } = await supabase
-        .from('orders')
-        .select('total, closed_at')
-        .eq('status', 'cerrada')
-        .gte('closed_at', hace30);
-
-      const hourMap: Record<string, number[]> = {};
-      (ordersHistory || []).forEach((o: any) => {
-        if (!o.closed_at) return;
-        let h = o.closed_at.substring(11, 13) + ':00';
-        if (!hourMap[h]) hourMap[h] = [];
-        hourMap[h].push(Number(o.total));
-      });
-
-      const { data: todayOrders } = await supabase
-        .from('orders')
-        .select('total, closed_at')
-        .eq('status', 'cerrada')
-        .gte('closed_at', hoy);
-
-      const todayMap: Record<string, number> = {};
-      (todayOrders || []).forEach((o: any) => {
-        if (!o.closed_at) return;
-        let h = o.closed_at.substring(11, 13) + ':00';
-        todayMap[h] = (todayMap[h] || 0) + Number(o.total);
-      });
-
-      const peak = Object.entries(hourMap).sort().map(([hora, vals]) => ({
-        hora,
-        actual: todayMap[hora] || 0,
-        predicho: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
-        confianza: Math.min(95, 60 + vals.length * 2),
-        recomendacion: vals.length > 5 ? 'Hora con historial suficiente' : 'Datos insuficientes',
-      }));
-
-      setPeakChartData(peak);
-    }
-
-    loadCOGSAndPeak();
-  }, [dateRange, customStart, customEnd]);
-
-  // Market Basket Analysis — calcular pares reales desde order_items
-  useEffect(() => {
-    async function loadMarketBasket() {
-      const now = new Date();
-      let startISO: string;
-      if (dateRange === 'hoy') {
-        const s = new Date(now); s.setHours(0,0,0,0); startISO = s.toISOString();
-      } else if (dateRange === 'semana') {
-        const s = new Date(now); s.setDate(now.getDate() - 7); startISO = s.toISOString();
-      } else if (dateRange === 'mes') {
-        startISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      } else {
-        startISO = customStart ? new Date(customStart + 'T00:00:00').toISOString() : new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      }
-
-      const { data: rawItems } = await supabase
-        .from('order_items')
-        .select('order_id, name, qty, price')
-        .gte('created_at', startISO)
-        .limit(5000);
-
-      if (!rawItems || rawItems.length < 10) return;
-
-      const orderMap: Record<string, { name: string; price: number }[]> = {};
-      rawItems.forEach((item: any) => {
-        if (!orderMap[item.order_id]) orderMap[item.order_id] = [];
-        orderMap[item.order_id].push({ name: item.name, price: Number(item.price) });
-      });
-
-      const orders = Object.values(orderMap);
-      const totalOrders = orders.length;
-      if (totalOrders < 5) return;
-
-      const pairMap: Record<string, { count: number; pa: number; pb: number }> = {};
-      const itemCount: Record<string, number> = {};
-
-      orders.forEach((items) => {
-        const names = [...new Set(items.map((i: any) => i.name))];
-        names.forEach(n => { itemCount[n] = (itemCount[n] || 0) + 1; });
-        for (let i = 0; i < names.length; i++) {
-          for (let j = i + 1; j < names.length; j++) {
-            const key = [names[i], names[j]].sort().join('|||');
-            if (!pairMap[key]) pairMap[key] = {
-              count: 0,
-              pa: items.find((x: any) => x.name === names[i])?.price || 0,
-              pb: items.find((x: any) => x.name === names[j])?.price || 0,
-            };
-            pairMap[key].count += 1;
-          }
-        }
-      });
-
-      const pairs: BasketPair[] = Object.entries(pairMap)
-        .filter(([, v]) => v.count >= 2)
-        .map(([key, v]) => {
-          const [a, b] = key.split('|||');
-          const confAB = v.count / (itemCount[a] || 1);
-          const lift = confAB / ((itemCount[b] || 1) / totalOrders);
-          return {
-            producto_a: a, producto_b: b,
-            frecuencia: v.count,
-            confianza: Math.round(confAB * 100) / 100,
-            lift: Math.round(lift * 100) / 100,
-            precio_a: v.pa, precio_b: v.pb,
-          };
-        })
-        .sort((a, b) => b.frecuencia - a.frecuencia)
-        .slice(0, 15);
-
-      if (pairs.length > 0) setBasketPairs(pairs);
-    }
-    loadMarketBasket();
-  }, [dateRange, customStart, customEnd]);
 
   // Fetch real payroll from employees table
   useEffect(() => {
@@ -755,9 +449,9 @@ export default function ReportesManagement() {
   }, []);
 
   // Use real data if available, fall back to state data
-  const topDishesToUse = realTopDishes.length > 0 ? realTopDishes : topDishesData;
-  const worstDishesToUse = realWorstDishes.length > 0 ? realWorstDishes : worstDishesData;
-  const hourlyDataToUse = realHourlyData.length > 0 ? realHourlyData : hourlyData;
+  const topDishesToUse = topDishesData.length > 0 ? topDishesData : topDishesData;
+  const worstDishesToUse = worstDishesData.length > 0 ? worstDishesData : worstDishesData;
+  const hourlyDataToUse = hourlyData.length > 0 ? hourlyData : hourlyData;
   const staffDataToUse = realStaffData.length > 0 ? realStaffData : staffPerformanceData;
   const kpisToUse = realKpis ?? kpiData[dateRange];
 
@@ -787,9 +481,9 @@ export default function ReportesManagement() {
   const worstChartData = worstDishesToUse.map(d => ({ ...d, nombre: shortName(d.nombre) }));
 
   const sortedCogsData = useMemo(() => {
-    const source = realCogsData.length > 0 ? realCogsData : cogsData;
+    const source = cogsData.length > 0 ? cogsData : cogsData;
     return [...source].sort((a, b) => b[cogsSort] - a[cogsSort]);
-  }, [cogsSort, realCogsData, cogsData]);
+  }, [cogsSort, cogsData, cogsData]);
 
   const topStaff = useMemo(() =>
     [...staffDataToUse].sort((a, b) => b.ordenesHora - a.ordenesHora),
@@ -1234,7 +928,7 @@ export default function ReportesManagement() {
                   )}
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-700" style={{ backgroundColor: '#1B3A6B', color: 'white', fontWeight: 700 }}>
-                      {emp.nombre.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                      {emp.nombre.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
                     </div>
                     <div>
                       <p className="text-sm font-700 text-gray-900 leading-tight" style={{ fontWeight: 700 }}>{emp.nombre}</p>
@@ -1529,11 +1223,11 @@ export default function ReportesManagement() {
                     </div>
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs text-gray-500">Órdenes reales</span>
-                      <span className="text-xs font-700 font-mono" style={{ fontWeight: 700, color: textColor }}>{p.demandaActual}</span>
+                      <span className="text-xs font-700 font-mono" style={{ fontWeight: 700, color: textColor }}>{p.actual}</span>
                     </div>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-xs text-gray-500">Predicción</span>
-                      <span className="text-xs font-700 font-mono" style={{ fontWeight: 700, color: textColor }}>{p.demandaPredicha}</span>
+                      <span className="text-xs font-700 font-mono" style={{ fontWeight: 700, color: textColor }}>{p.predicho}</span>
                     </div>
                     <div className="mt-2 pt-2 border-t" style={{ borderColor: borderColor }}>
                       <div className="flex items-center justify-between">
