@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import { ShoppingCart, Plus, Minus, Send, X, ChevronLeft, Search, MessageSquare, CreditCard } from 'lucide-react';
-import PaymentModal from '@/app/pos-punto-de-venta/components/PaymentModal';
+import PaymentModal from '@/app/(erp)/pos-punto-de-venta/components/PaymentModal';
 import { useOrderFlow, type OrderFlowItem } from '@/hooks/useOrderFlow';
 import { useFeatures } from '@/hooks/useFeatures';
 import type { DbTable, DbDish } from '@/lib/supabase/types';
