@@ -27,7 +27,7 @@ function SaveButton({ saved, onClick }: { saved: boolean; onClick: () => void })
   );
 }
 
-export default function ConfigRestaurante() {
+export default function ConfigRestaurante({ activeSection }: { activeSection: string }) {
   const supabase = createClient();
   const { brandConfig } = useAuth();
 
@@ -104,9 +104,9 @@ export default function ConfigRestaurante() {
   }
 
   return (
-    <div className="space-y-8 max-w-2xl">
+    <div className="max-w-2xl">
       {/* Restaurante */}
-      <div>
+      {activeSection === 'restaurante' && <div>
         <SectionTitle icon={Store} title="Información del Restaurante" />
         <div className="rounded-xl p-5 mb-5" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
           <label className="block text-sm font-semibold mb-3" style={{ color: 'rgba(255,255,255,0.7)' }}>Logo del Restaurante</label>
@@ -130,10 +130,10 @@ export default function ConfigRestaurante() {
             style={{ backgroundColor: '#0f1923', border: '1px solid #2a3f5f', color: '#f1f5f9' }} />
         </div>
         <SaveButton saved={settingsSaved} onClick={handleSaveSettings} />
-      </div>
+      </div>}
 
       {/* Operación */}
-      <div>
+      {activeSection === 'operacion' && <div>
         <SectionTitle icon={Store} title="Parámetros de Operación" />
         <div className="rounded-xl p-5 mb-5" style={{ backgroundColor: '#1a2535', border: '1px solid #1e2d3d' }}>
           <label className="block text-sm font-semibold mb-1" style={{ color: 'rgba(255,255,255,0.7)' }}>Porcentaje de IVA</label>
@@ -189,7 +189,7 @@ export default function ConfigRestaurante() {
           </div>
         </div>
         <SaveButton saved={operacionSaved} onClick={handleSaveOperacion} />
-      </div>
+      </div>}
     </div>
   );
 }

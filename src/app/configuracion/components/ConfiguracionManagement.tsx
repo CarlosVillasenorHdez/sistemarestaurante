@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Store, Hash, LayoutGrid, Clock, Printer, Zap, Star, Settings2, Users } from 'lucide-react';
+import { Store, Hash, LayoutGrid, Clock, Printer, Zap, Star, Settings2, Users, Shield } from 'lucide-react';
 import ConfigRestaurante  from './sections/ConfigRestaurante';
 import ConfigLayout       from './sections/ConfigLayout';
 import ConfigOperaciones  from './sections/ConfigOperaciones';
 import ConfigSistema      from './sections/ConfigSistema';
+import AuditLog          from './sections/AuditLog';
 
 const SECTIONS = [
   { id: 'restaurante',   label: 'Restaurante',        icon: Store,      group: 'Configuración' },
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: 'lealtad_config',label: 'Programa de Lealtad', icon: Star,      group: 'Sistema' },
   { id: 'sistema',       label: 'Sistema',             icon: Settings2,  group: 'Sistema' },
   { id: 'usuarios',      label: 'Usuarios & Roles',    icon: Users,      group: 'Sistema' },
+  { id: 'auditoria',     label: 'Auditoría',            icon: Shield,     group: 'Sistema' },
 ] as const;
 
 type SectionId = typeof SECTIONS[number]['id'];
@@ -30,6 +32,7 @@ function resolveComponent(section: SectionId) {
   if (section === 'restaurante' || section === 'operacion') return 'restaurante';
   if (section === 'layout') return 'layout';
   if (section === 'horarios' || section === 'impresora') return 'operaciones';
+  if (section === 'auditoria') return 'auditoria';
   return 'sistema';
 }
 
@@ -89,10 +92,11 @@ export default function ConfiguracionManagement() {
 
         {/* Content — mount once, let each sub-component manage its own scroll */}
         <div className="flex-1 overflow-y-auto p-6">
-          {activeComponent === 'restaurante' && <ConfigRestaurante />}
+          {activeComponent === 'restaurante' && <ConfigRestaurante activeSection={activeSection} />}
           {activeComponent === 'layout'      && <ConfigLayout />}
-          {activeComponent === 'operaciones' && <ConfigOperaciones />}
-          {activeComponent === 'sistema'     && <ConfigSistema />}
+          {activeComponent === 'operaciones' && <ConfigOperaciones activeSection={activeSection} />}
+          {activeComponent === 'sistema'     && <ConfigSistema activeSection={activeSection} />}
+          {activeComponent === 'auditoria'    && <AuditLog />}
         </div>
       </div>
     </div>
