@@ -28,10 +28,7 @@ export default function ErpGroupLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     if (authLoading) return;
     if (!appUser?.tenantId) { setChecking(false); return; }
-
-    // Superadmin bypasses subscription check
     if (appUser.appRole === 'superadmin') { setChecking(false); return; }
-
     const supabase = createClient();
     supabase
       .from('tenants')
@@ -44,14 +41,10 @@ export default function ErpGroupLayout({ children }: { children: React.ReactNode
       });
   }, [appUser, authLoading]);
 
-  // While checking auth or subscription — render nothing (AppLayout handles its own spinner)
   if (authLoading || checking) return <>{children}</>;
-
-  // If we have status and it's blocked — show wall instead of ERP
   if (status) {
     const reason = getWallReason(status);
     if (reason) return <SubscriptionWall reason={reason} plan={status.plan} />;
   }
-
   return <>{children}</>;
 }
