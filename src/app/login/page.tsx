@@ -206,7 +206,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs mt-4" style={{ color: 'rgba(255,255,255,0.2)' }}>
-          PIN por defecto: 12345
+          PIN por defecto: 12345 · v1.0.1
         </p>
       </div>
     </div>
