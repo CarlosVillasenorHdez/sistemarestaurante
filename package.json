@@ -9,7 +9,12 @@
       "react-dom",
       "@dhiwise/component-tagger",
       "@tailwindcss/typography",
-      "recharts"
+      "recharts",
+      "lucide-react",
+      "sonner",
+      "@supabase/supabase-js",
+      "react-hook-form",
+      "@heroicons/react"
     ],
     "devDependencies": [
       "typescript",

@@ -48,7 +48,28 @@ interface AuthContextValue {
   updateUserRole: (userId: string, role: AppRole) => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue>({} as AuthContextValue);
+const DEFAULT_BRAND_CONFIG = {
+  primaryColor: '#1B3A6B',
+  accentColor: '#f59e0b',
+  logoUrl: '',
+  restaurantName: 'Mi Restaurante',
+  theme: 'dark' as const,
+};
+
+const AuthContext = createContext<AuthContextValue>({
+  appUser: null,
+  loading: true,
+  brandConfig: DEFAULT_BRAND_CONFIG,
+  tenantId: null,
+  branchId: null,
+  signIn: async () => ({}),
+  signOut: async () => {},
+  createUser: async () => {},
+  updateUserPassword: async () => {},
+  listUsers: async () => [],
+  toggleUserActive: async () => {},
+  updateUserRole: async () => {},
+});
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
