@@ -2,11 +2,6 @@
 
 Plataforma SaaS completa para la gestión operativa de restaurantes medianos y cadenas locales. Construida con Next.js 15, TypeScript y Supabase.
 
-Mostrar imagen
-Mostrar imagen
-Mostrar imagen
-Mostrar imagen
-Mostrar imagen
 
 📋 Descripción
 SistemaRest es una solución integral de gestión para restaurantes que cubre el ciclo completo de operación: desde la toma de pedidos en mesa hasta el análisis financiero. Diseñado para restaurantes medianos y cadenas locales que buscan digitalizar y optimizar su operación sin depender de múltiples herramientas.
