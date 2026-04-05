@@ -64,7 +64,8 @@
     "react-hook-form": "^7.71.2",
     "recharts": "^2.15.2",
     "resend": "6.9.4",
-    "sonner": "^1.7.1"
+    "sonner": "^1.7.1",
+    "stripe": "^22.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
