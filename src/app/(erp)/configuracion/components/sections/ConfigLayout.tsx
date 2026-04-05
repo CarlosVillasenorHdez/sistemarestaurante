@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { toast } from 'sonner';
-import { LayoutGrid, Move, Plus, XCircle, Hash, Trash2, Save, CheckCircle } from 'lucide-react';
+
+import { LayoutGrid, Move, XCircle, Hash, Trash2, Save, CheckCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAudit } from '@/hooks/useAudit';
 import { ElementType, LayoutTable, ELEMENT_TYPES } from './types';
+import Icon from '@/components/ui/AppIcon';
+
 
 function SectionTitle({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
   return (

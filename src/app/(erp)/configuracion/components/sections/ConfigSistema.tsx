@@ -1,13 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { toast } from 'sonner';
-import { Zap, Star, Settings2, CheckCircle, Save, Eye, EyeOff, AlertTriangle, RotateCcw } from 'lucide-react';
+
+import { Zap, Star, Settings2, CheckCircle, Save, AlertTriangle, RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { invalidateSysConfigCache } from '@/hooks/useSysConfig';
+
 import { DEFAULT_FEATURES, FEATURE_KEYS, Features, invalidateFeaturesCache } from '@/hooks/useFeatures';
 import UsuariosManagement from '../UsuariosManagement';
+import Icon from '@/components/ui/AppIcon';
+
 
 function SectionTitle({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
   return (

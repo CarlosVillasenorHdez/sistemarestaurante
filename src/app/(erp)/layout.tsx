@@ -1,3 +1,5 @@
+import AppLayout from '@/components/AppLayout';
+
 /**
  * (erp)/layout.tsx
  *

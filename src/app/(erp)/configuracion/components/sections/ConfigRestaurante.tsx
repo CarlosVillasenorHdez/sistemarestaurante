@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { invalidateSysConfigCache } from '@/hooks/useSysConfig';
 import { COUNTRY_CURRENCY } from './types';
+import Icon from '@/components/ui/AppIcon';
+
 
 function SectionTitle({ icon: Icon, title }: { icon: React.ElementType; title: string }) {
   return (

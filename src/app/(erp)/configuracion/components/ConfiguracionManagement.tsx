@@ -7,6 +7,8 @@ import ConfigLayout       from './sections/ConfigLayout';
 import ConfigOperaciones  from './sections/ConfigOperaciones';
 import ConfigSistema      from './sections/ConfigSistema';
 import AuditLog          from './sections/AuditLog';
+import Icon from '@/components/ui/AppIcon';
+
 
 const SECTIONS = [
   { id: 'restaurante',   label: 'Restaurante',        icon: Store,      group: 'Configuración' },

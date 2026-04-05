@@ -6,6 +6,8 @@ import { Clock, Printer, CheckCircle, Save, Wifi, Usb, Bluetooth, AlertTriangle 
 import { createClient } from '@/lib/supabase/client';
 import { usePrinter } from '@/hooks/usePrinter';
 import { BusinessHours, PrinterConfig } from './types';
+import Icon from '@/components/ui/AppIcon';
+
 
 const defaultPrinter: PrinterConfig = {
   id: '', name: 'Impresora Principal', connectionType: 'network',

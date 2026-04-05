@@ -18,7 +18,7 @@ function getAdminClient() {
 
 export async function POST(req: NextRequest) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-    apiVersion: '2024-06-20',
+    apiVersion: '2023-10-16',
   });
 
   const body = await req.text();
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       }
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
-        const tenantId = sub.metadata?.tenant_id;
+        let tenantId = sub.metadata?.tenant_id;
         if (tenantId) {
           await supabase.from('tenants').update({ is_active: false, updated_at: new Date().toISOString() }).eq('id', tenantId);
         }

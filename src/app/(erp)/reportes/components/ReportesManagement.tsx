@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useReportData, DateRange, DishSales, HourlySales, BasketPair, StaffPerformance, DishCOGS, PeakPrediction } from '@/hooks/useReportData';
+import { useReportData, DateRange, DishSales, StaffPerformance, PeakPrediction } from '@/hooks/useReportData';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, AreaChart, Area, Legend } from 'recharts';
 import { Calendar, Download, TrendingUp, TrendingDown, DollarSign, ShoppingBag, Users, Clock, ShoppingCart, Award, ChefHat, AlertTriangle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
