@@ -6,6 +6,7 @@ import RecentOrders from './components/RecentOrders';
 import DashboardQuickActions from './components/DashboardQuickActions';
 import AlertsPanel from './components/AlertsPanel';
 import LiveOperations from './components/LiveOperations';
+import RecentActivity from './components/RecentActivity';
 
 export default function DashboardPage() {
   return (
@@ -23,13 +24,14 @@ export default function DashboardPage() {
         {/* KPI Bento Grid */}
         <DashboardKPIs />
 
-        {/* Charts + Alerts row */}
+        {/* Charts + Alerts + Activity row */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2">
             <SalesChart />
           </div>
-          <div className="xl:col-span-1">
+          <div className="xl:col-span-1 flex flex-col gap-6">
             <AlertsPanel />
+            <RecentActivity />
           </div>
         </div>
 
