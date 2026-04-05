@@ -24,7 +24,7 @@ export default function DashboardPage() {
         {/* KPI Bento Grid */}
         <DashboardKPIs />
 
-        {/* Charts + Alerts + Activity row */}
+        {/* Charts + Alerts row */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2">
             <SalesChart />
